@@ -86,6 +86,7 @@ export const useAISmarttalkChat = ({
     conversations,
     setConversations,
     updateChatTitle,
+    canvasHistory
   } = useChatMessages({
     chatModelId,
     chatInstanceId: chatInstanceId as string,
@@ -136,6 +137,9 @@ export const useAISmarttalkChat = ({
     // Utility functions
     resetAll,
     fetchMessagesFromApi,
+
+    // Canva functions
+    canvasHistory
   };
 };
 

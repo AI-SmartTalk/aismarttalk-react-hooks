@@ -6,6 +6,7 @@ import { CTADTO, FrontChatMessage } from '../../types/chat';
 import { Tool } from '../../types/tools';
 import { TypingUser } from '../../types/typingUsers';
 import { saveConversationStarters, saveSuggestions } from '../../utils/localStorageHelpers';
+import useCanvasHistory, { Canvas } from '../canva/useCanvasHistory';
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -21,6 +22,7 @@ export const useSocketHandler = (
   setUser: (user: User) => void,
   fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
+  canvasHistory: ReturnType<typeof useCanvasHistory>
 ) => {
   useEffect(() => {
     if(!chatInstanceId || !chatModelId || !finalApiUrl) return;
@@ -94,9 +96,21 @@ export const useSocketHandler = (
       console.error('Socket reconnect failed:', { url: finalWsUrl })
     );
 
+    socket.on('canvas:update', (canvas: Canvas) => {
+      canvasHistory.updateCanvas(canvas);
+    });
+
+    socket.on('canvas:line-update', ({ start, end, lines }: { 
+      start: number;
+      end: number;
+      lines: string[];
+    }) => {
+      canvasHistory.updateLineRange(start, end, lines);
+    });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [chatInstanceId, user, chatModelId, finalWsUrl, finalApiUrl, debouncedTypingUsersUpdate, fetchMessagesFromApi]);
+  }, [chatInstanceId, user, chatModelId, finalWsUrl, finalApiUrl, debouncedTypingUsersUpdate, fetchMessagesFromApi, canvasHistory]);
 }; 

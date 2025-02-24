@@ -23,6 +23,7 @@ import { UseChatMessagesOptions } from '../types/chatConfig';
 import { defaultApiUrl, defaultWsUrl } from '../types/config';
 import { useSocketHandler } from './chat/useSocketHandler';
 import { useMessageHandler } from './chat/useMessageHandler';
+import useCanvasHistory from './canva/useCanvasHistory';
 
 export interface ChatHistoryItem {
   id: string;
@@ -62,6 +63,8 @@ export interface ChatHistoryItem {
  * @returns {ChatHistoryItem[]} returns.conversations - Array of chat conversations
  * @returns {Function} returns.setConversations - Function to update conversations
  * @returns {Function} returns.saveConversationHistory - Function to save chat history
+ * @returns {Canvas} returns.canvas - Canvas object
+ * @returns {CanvasHistory} returns.canvasHistory - Canvas history object
  */
 export const useChatMessages = ({
   chatInstanceId,
@@ -137,6 +140,7 @@ export const useChatMessages = ({
     state.messages
   );
 
+  const canvasHistory = useCanvasHistory(chatModelId);
 
   const socket = useSocketHandler(
     chatInstanceId,
@@ -151,10 +155,9 @@ export const useChatMessages = ({
     setActiveTool,
     setUser,
     fetchMessagesFromApi,
-    debouncedTypingUsersUpdate
+    debouncedTypingUsersUpdate,
+    canvasHistory
   );
-
-   
 
   useEffect(() => {
     if (state.messages.length > 0 && !chatTitle) {
@@ -243,5 +246,7 @@ export const useChatMessages = ({
     setConversations,
     saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
       saveConversationHistory(chatInstanceId, title, messages),
+    canvas: canvasHistory.canvas,
+    canvasHistory
   };
 };
