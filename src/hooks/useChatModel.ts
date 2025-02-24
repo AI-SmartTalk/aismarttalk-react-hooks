@@ -26,13 +26,8 @@ interface UseChatModelProps {
     chatModelId,
     config,
   }: UseChatModelProps) => {
-    const {
-      apiUrl,
-      apiToken
-    } = config || {};
-
-    const finalApiUrl = apiUrl || defaultApiUrl;
-    const finalApiToken = apiToken || '';
+    const finalApiUrl = config?.apiUrl || defaultApiUrl;
+    const finalApiToken = config?.apiToken || '';
 
     const [chatModel, setChatModel] = useState<ChatModel | null>(null);
 

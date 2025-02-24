@@ -65,21 +65,12 @@ export const useChatMessages = ({
   chatInstanceId,
   user,
   setUser,
-  chatModelId, // Maintenant, c'est une propriété obligatoire hors config
+  chatModelId,
   config,
 }: UseChatMessagesOptions) => {
-  // Extraction des valeurs de config pour les autres paramètres
-  const {
-    apiUrl,
-    wsUrl,
-    apiToken
-  } = config || {};
-
-  
-
-  const finalApiUrl = apiUrl || defaultApiUrl;
-  const finalWsUrl = wsUrl || defaultWsUrl;
-  const finalApiToken = apiToken || '';
+  const finalApiUrl = config?.apiUrl || defaultApiUrl;
+  const finalWsUrl = config?.wsUrl || defaultWsUrl;
+  const finalApiToken = config?.apiToken || '';
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const [socketStatus, setSocketStatus] = useState<string>('disconnected');

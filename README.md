@@ -2,7 +2,7 @@
 
 A collection of high-quality, reusable React hooks for integrating [AI Smarttalk](https://aismarttalk.tech)'s [AI Agents](https://aismarttalk.tech) into your react application. This library provides hooks for managing chat messages, user state, and chat instance initialization with robust error handling, token validation, and localStorage persistence.
 
-## Fixes in 1.1.1 & 1.1.2
+## Fixes in 1.1.1 & 1.1.2 & 1.1.3
 
 - Fix hardcoded urls in getChatModel
 - Refactor and remove duplicated code

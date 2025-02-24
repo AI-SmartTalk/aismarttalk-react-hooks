@@ -38,14 +38,8 @@ export const useChatInstance = ({
   config,
   user,
 }: UseChatInstanceProps) => {
-  const {
-    apiUrl,
-    apiToken
-  } = config || {};
-
-  
-  const finalApiUrl = apiUrl || defaultApiUrl;
-  const finalApiToken = apiToken || '';
+  const finalApiUrl = config?.apiUrl || defaultApiUrl;
+  const finalApiToken = config?.apiToken || '';
 
   const [chatInstanceId, setChatInstanceId] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
