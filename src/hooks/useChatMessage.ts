@@ -1,5 +1,3 @@
-// src/hooks/useChatMessages.ts
-
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import socketIOClient from 'socket.io-client';
 import { FrontChatMessage } from '../types/chat';
@@ -21,7 +19,7 @@ import {
   saveConversationStarters,
   saveSuggestions,
 } from '../utils/localStorageHelpers';
-import { ChatConfig, UseChatMessagesOptions } from '../types/chatConfig';
+import { UseChatMessagesOptions } from '../types/chatConfig';
 
 export interface ChatHistoryItem {
   id: string;
@@ -30,23 +28,20 @@ export interface ChatHistoryItem {
   lastUpdated: string;
 }
 
-const defaultConfig: ChatConfig = {
-  chatModelId: '',
-  apiUrl: 'https://aismarttalk.tech',
-  wsUrl: 'wss://ws.223.io.aismarttalk.tech',
-  cdnUrl: 'https://cdn.aismarttalk.tech',
-  apiToken: '',
-};
-
 export const useChatMessages = ({
   chatInstanceId,
   isOpen,
   user,
   setUser,
-  config = defaultConfig,
+  chatModelId, // Maintenant, c'est une propriété obligatoire hors config
+  config,
 }: UseChatMessagesOptions) => {
-  // Extraction des valeurs de configuration
-  const { chatModelId, apiUrl, wsUrl, apiToken } = config;
+  // Extraction des valeurs de config pour les autres paramètres
+  const {
+    apiUrl = 'https://aismarttalk.tech',
+    wsUrl = 'wss://ws.223.io.aismarttalk.tech',
+    apiToken = '',
+  } = config || {};
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const [socketStatus, setSocketStatus] = useState<string>('disconnected');
@@ -118,7 +113,7 @@ export const useChatMessages = ({
     if (savedSuggestions.length > 0) {
       dispatch({ type: ChatActionTypes.UPDATE_SUGGESTIONS, payload: { suggestions: savedSuggestions } });
     }
-    // On utilise ici chatModelId pour gérer les conversation starters
+    // Utilise chatModelId pour gérer les conversation starters
     const starters = loadConversationStarters(chatModelId);
     if (starters.length > 0) setConversationStarters(starters);
   }, [chatInstanceId, chatModelId]);
@@ -202,7 +197,7 @@ export const useChatMessages = ({
       socket.disconnect();
       setSocketStatus('disconnected');
     };
-  }, [chatInstanceId, user, wsUrl, fetchMessagesFromApi, debouncedTypingUsersUpdate, chatModelId]);
+  }, [chatInstanceId, user, wsUrl, chatModelId]);
 
   useEffect(() => {
     if (state.messages.length > 0 && !chatTitle) {
@@ -286,7 +281,7 @@ export const useChatMessages = ({
     } else {
       fetchMessagesFromApi();
     }
-  }, [chatInstanceId, fetchMessagesFromApi]);
+  }, [chatInstanceId]);
 
   useEffect(() => {
     const stored = localStorage.getItem('chat-conversations');

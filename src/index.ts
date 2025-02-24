@@ -1,6 +1,10 @@
-export { useChatMessages } from './hooks/useChatMessage';
-export type { User } from './types/users';
-export type { FrontChatMessage, CTADTO } from './types/chat';
-export type { TypingUser } from './types/typingUsers';
-export type { Tool } from './types/tools';
-export type { ChatModel } from './types/chatModel'; 
+export { useChatMessages } from "./hooks/useChatMessage";
+export { useChatInstance } from "./hooks/useChatInstance";
+export type { User } from "./types/users";
+export type { FrontChatMessage, CTADTO } from "./types/chat";
+export type { TypingUser } from "./types/typingUsers";
+export type { Tool } from "./types/tools";
+export type { ChatModel } from "./types/chatModel";
+export type { ChatConfig } from "./types/chatConfig";
+export type { UseChatMessagesOptions } from "./types/chatConfig";
+export type { ChatHistoryItem } from "./hooks/useChatMessage";
