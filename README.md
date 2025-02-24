@@ -23,12 +23,12 @@ A collection of high-quality, reusable React hooks for integrating [AI Smarttalk
 Install the package via npm or yarn:
 
 ```bash
-npm install ai-smart-chat-hooks
+npm install @aismarttalk/react-hooks
 # or
-yarn add ai-smart-chat-hooks
+yarn add @aismarttalk/react-hooks
 ```
 
-> _Note: Replace `ai-smart-chat-hooks` with the actual package name if different._
+> _Note: Replace `@aismarttalk/react-hooks` with the actual package name if different._
 
 ---
 
@@ -38,8 +38,8 @@ yarn add ai-smart-chat-hooks
 
 ```tsx
 import React from 'react';
-import useChatMessages from 'ai-smart-chat-hooks/hooks/useChatMessages';
-import { User } from 'ai-smart-chat-hooks/types/users';
+import useChatMessages from '@aismarttalk/react-hooks/hooks/useChatMessages';
+import { User } from '@aismarttalk/react-hooks/types/users';
 
 const ChatComponent = () => {
   // Example user object
@@ -97,7 +97,7 @@ export default ChatComponent;
 
 ```tsx
 import React from 'react';
-import useUser from 'ai-smart-chat-hooks/hooks/useUser';
+import useUser from '@aismarttalk/react-hooks/hooks/useUser';
 
 const UserComponent = () => {
   const { user, setUser, updateUserFromLocalStorage } = useUser();
@@ -123,7 +123,7 @@ export default UserComponent;
 
 ```tsx
 import React from 'react';
-import useChatInstance from 'ai-smart-chat-hooks/hooks/useChatInstance';
+import useChatInstance from '@aismarttalk/react-hooks/hooks/useChatInstance';
 
 const ChatInstanceComponent = () => {
   const { chatInstanceId, resetInstance, error } = useChatInstance({
@@ -229,4 +229,4 @@ For questions or support, please open an issue on the repository or contact the 
 
 ---
 
-Enjoy integrating chat functionality with AI Smart Chat Hooks!
+Enjoy integrating chat functionality with [AI Smarttalk](https://aismarttalk.tech) React Hooks!

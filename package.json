@@ -1,5 +1,5 @@
 {
-  "name": "aismarttalk-react-hooks",
+  "name": "@aismarttalk/react-hooks",
   "version": "1.0.0",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
