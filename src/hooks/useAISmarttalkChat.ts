@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useChatInstance } from './useChatInstance';
-import { useChatMessages } from './useChatMessage';
-import useUser from './useUser';
-import { ChatConfig } from '../types/chatConfig';
-import { ChatModel } from '../types/chatModel';
+import { useState, useEffect } from "react";
+import { useChatInstance } from "./useChatInstance";
+import { useChatMessages } from "./useChatMessage";
+import useUser from "./useUser";
+import { ChatConfig } from "../types/chatConfig";
+import { ChatModel } from "../types/chatModel";
+import { useChatModel } from "./useChatModel";
 
 /**
  * Configuration props for the AI Smarttalk Chat hook
@@ -20,12 +21,12 @@ interface UseAISmarttalkProps {
 
 /**
  * Custom hook for managing AI Smarttalk chat functionality
- * 
+ *
  * @param {UseAISmarttalkProps} props - Configuration properties
  * @param {string} props.chatModelId - Unique identifier for the chat model
  * @param {string} [props.lang='en'] - Language code for the chat
  * @param {ChatConfig} [props.config] - Optional configuration settings
- * 
+ *
  * @returns {Object} Chat management functions and state
  * @returns {string} returns.chatInstanceId - Current chat instance identifier
  * @returns {Function} returns.getNewInstance - Creates a new chat instance
@@ -54,20 +55,22 @@ interface UseAISmarttalkProps {
  */
 export const useAISmarttalkChat = ({
   chatModelId,
-  lang = 'en',
+  lang = "en",
   config,
 }: UseAISmarttalkProps) => {
-  const [chatModel, setChatModel] = useState<ChatModel | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
   const { user, setUser, updateUserFromLocalStorage } = useUser();
 
-  const { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId } = useChatInstance({
-    chatModelId,
-    lang,
-    config,
-    user: user ?? undefined,
-  });
+  const { chatModel, setChatModel } = useChatModel({ chatModelId, config });
+
+  const { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId } =
+    useChatInstance({
+      chatModelId,
+      lang,
+      config,
+      user: user ?? undefined,
+    });
 
   const {
     messages,
@@ -91,39 +94,6 @@ export const useAISmarttalkChat = ({
     config,
   });
 
-  const fetchChatModel = async () => {
-    try {
-      const { apiUrl = 'https://aismarttalk.tech', apiToken } = config || {};
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (apiToken) {
-        headers['appToken'] = apiToken;
-      }
-
-      const response = await fetch(`${apiUrl}/api/chat/getModel?id=${chatModelId}`, {
-        method: 'GET',
-        headers,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch chat model: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setChatModel(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('Failed to fetch chat model'));
-      console.error('Error fetching chat model:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchChatModel();
-  }, [chatModelId]);
-
   const resetAll = () => {
     resetInstance();
     resetChat();
@@ -136,12 +106,12 @@ export const useAISmarttalkChat = ({
     getNewInstance,
     setChatInstanceId,
     resetInstance,
-    
+
     // User related
     user,
     setUser,
     updateUserFromLocalStorage,
-    
+
     // Messages related
     messages,
     addMessage,
@@ -151,18 +121,18 @@ export const useAISmarttalkChat = ({
     socketStatus,
     typingUsers,
     conversationStarters,
-    
+
     // Chat model related
     chatModel,
     setChatModel,
     error,
-    
+
     // Tools and features
     activeTool,
     conversations,
     setConversations,
     updateChatTitle,
-    
+
     // Utility functions
     resetAll,
     fetchMessagesFromApi,

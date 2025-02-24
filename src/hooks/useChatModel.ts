@@ -9,43 +9,58 @@ import { ChatModel } from "../types/chatModel";
  * @returns Object containing the fetched chat model data
  */
 
-export const useChatModel = (
-  chatModelId: string,
-  apiToken: string,
-  aiSmartTalkApiUrl: string
-) => {
+interface UseChatModelProps {
+    /** ID of the chat model to use */
+    chatModelId: string;      
+    /** Optional configuration object */
+    config?: {
+      /** Base API URL */
+      apiUrl?: string;     
+      /** API authentication token */
+      apiToken?: string;
+    };   
+  }
+
+  export const useChatModel = ({
+    chatModelId,
+    config,
+  }: UseChatModelProps) => {
+    const {
+      apiUrl = 'https://aismarttalk.tech',
+      apiToken = '',
+    } = config || {};
   const [chatModel, setChatModel] = useState<ChatModel | null>(null);
 
-  useEffect(() => {
-    const fetchChatModelInfo = async () => {
-      try {
-        const res = await fetch(
-          `${aiSmartTalkApiUrl}/api/chat/getModel?id=${chatModelId}`,
-          {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-              appToken: apiToken,
-            },
-          }
-        );
+  const fetchChatModel = async () => {
+    try {
+      const { apiUrl = config?.apiUrl || 'https://aismarttalk.tech', apiToken } = config || {};
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
 
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
-
-        const data = await res.json();
-        setChatModel(data);
-      } catch (error) {
-        console.error("Error fetching chat model:", error);
-        setChatModel(null);
+      if (apiToken) {
+        headers['appToken'] = apiToken;
       }
-    };
 
-    if (chatModelId && apiToken) {
-      fetchChatModelInfo();
+      const response = await fetch(`${apiUrl}/api/chat/getModel?id=${chatModelId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch chat model: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      setChatModel(data);
+    } catch (err) {
+      console.error('Error fetching chat model:', err);
     }
-  }, [chatModelId, apiToken, aiSmartTalkApiUrl]);
+  };
 
-  return { chatModel };
+  useEffect(() => {
+    fetchChatModel();
+  }, [chatModelId]);
+
+  return { chatModel, setChatModel };
 };

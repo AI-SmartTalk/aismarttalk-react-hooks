@@ -159,7 +159,7 @@ export const useChatMessages = ({
       upgrade: true,
       forceNew: true,
       rejectUnauthorized: false,
-      transportOptions: { polling: { extraHeaders: { Origin: 'https://aismarttalk.tech' } } },
+      transportOptions: { polling: { extraHeaders: { Origin: config?.apiUrl || 'https://aismarttalk.tech' } } },
     });
 
     socket.on('connect', () => {
