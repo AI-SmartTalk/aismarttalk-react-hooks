@@ -21,6 +21,8 @@ import {
 } from '../utils/localStorageHelpers';
 import { UseChatMessagesOptions } from '../types/chatConfig';
 import { defaultApiUrl, defaultWsUrl } from '../types/config';
+import { useSocketHandler } from './chat/useSocketHandler';
+import { useMessageHandler } from './chat/useMessageHandler';
 
 export interface ChatHistoryItem {
   id: string;
@@ -126,105 +128,33 @@ export const useChatMessages = ({
     }
   }, [finalApiUrl, finalApiToken, chatInstanceId, user.email]);
 
-  useEffect(() => {
-    if (!chatInstanceId) return;
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') fetchMessagesFromApi();
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    if (document.visibilityState === 'visible') fetchMessagesFromApi();
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [chatInstanceId, fetchMessagesFromApi]);
+  const { addMessage } = useMessageHandler(
+    chatInstanceId,
+    user,
+    dispatch,
+    chatTitle,
+    setChatTitle,
+    state.messages
+  );
 
-  useEffect(() => {
-    if (!chatInstanceId) return;
-    const savedSuggestions = loadSuggestions(chatInstanceId);
-    if (savedSuggestions.length > 0) {
-      dispatch({ type: ChatActionTypes.UPDATE_SUGGESTIONS, payload: { suggestions: savedSuggestions } });
-    }
-    // Utilise chatModelId pour gérer les conversation starters
-    const starters = loadConversationStarters(chatModelId);
-    if (starters.length > 0) setConversationStarters(starters);
-  }, [chatInstanceId, chatModelId]);
 
-  useEffect(() => {
-    if (!chatInstanceId) return;
-    const socket = socketIOClient(finalWsUrl, {
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      timeout: 20000,
-      transports: ['polling', 'websocket'],
-      upgrade: true,
-      forceNew: true,
-      rejectUnauthorized: false,
-      transportOptions: { polling: { extraHeaders: { Origin: finalApiUrl } } },
-    });
+  const socket = useSocketHandler(
+    chatInstanceId,
+    user,
+    finalWsUrl,
+    finalApiUrl,
+    chatModelId,
+    dispatch,
+    setSocketStatus,
+    setTypingUsers,
+    setConversationStarters,
+    setActiveTool,
+    setUser,
+    fetchMessagesFromApi,
+    debouncedTypingUsersUpdate
+  );
 
-    socket.on('connect', () => {
-      socket.emit('join', { chatInstanceId });
-      setSocketStatus('connected');
-      fetchMessagesFromApi();
-    });
-
-    socket.on('disconnect', (reason) => {
-      setSocketStatus('disconnected');
-    });
-
-    socket.on('chat-message', (data) => {
-      if (data.chatInstanceId === chatInstanceId) {
-        const isOwnMessage = user.email?.includes('anonymous@')
-          ? data.message.user?.email?.includes('anonymous@')
-          : data.message.user?.id === user.id;
-        if (!isOwnMessage) {
-          dispatch({
-            type: ChatActionTypes.ADD_MESSAGE,
-            payload: { message: data.message, chatInstanceId, userEmail: user.email },
-          });
-        }
-      }
-    });
-
-    socket.on('user-typing', (data: TypingUser) => {
-      debouncedTypingUsersUpdate(data);
-    });
-
-    socket.on('update-suggestions', (data) => {
-      if (data.chatInstanceId === chatInstanceId) {
-        saveSuggestions(chatInstanceId, data.suggestions);
-        dispatch({
-          type: ChatActionTypes.UPDATE_SUGGESTIONS,
-          payload: { suggestions: data.suggestions },
-        });
-      }
-    });
-
-    socket.on('conversation-starters', (data) => {
-      if (data.chatInstanceId === chatInstanceId && data.conversationStarters?.length) {
-        setConversationStarters(data.conversationStarters);
-        saveConversationStarters(chatModelId, data.conversationStarters);
-      }
-    });
-
-    socket.on('otp-login', (data: { chatInstanceId: string; user: User; token: string }) => {
-      if (data.user && data.token) {
-        const finalUser: User = { ...data.user, token: data.token };
-        setUser(finalUser);
-        
-      }
-    });
-
-    socket.on('tool-run-start', (data: Tool) => setActiveTool(data));
-
-    socket.on('connect_error', (err) => console.error('Socket connection error:', err));
-    socket.on('reconnect_failed', () =>
-      console.error('Socket reconnect failed:', { url: finalWsUrl })
-    );
-
-    return () => {
-      socket.disconnect();
-      setSocketStatus('disconnected');
-    };
-  }, [chatInstanceId, user, finalWsUrl, chatModelId]);
+   
 
   useEffect(() => {
     if (state.messages.length > 0 && !chatTitle) {
@@ -245,38 +175,6 @@ export const useChatMessages = ({
     setActiveTool(null);
     dispatch({ type: ChatActionTypes.RESET_CHAT, payload: { chatInstanceId } });
     dispatch({ type: ChatActionTypes.UPDATE_NOTIFICATION_COUNT, payload: { notificationCount: 0 } });
-  };
-
-  const addMessage = (message: Partial<FrontChatMessage> & { text: string }) => {
-    if (!chatInstanceId) return;
-    const newMessage: FrontChatMessage = {
-      id: message.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      text: message.text,
-      isSent: true,
-      chatInstanceId,
-      created_at: message.created_at || new Date().toISOString(),
-      updated_at: message.updated_at || new Date().toISOString(),
-      user: message.user || {
-        id: user.id ?? '',
-        email: user.email ?? '',
-        name: user.name ?? '',
-        image: user.image ?? '',
-      },
-    };
-
-    if (chatTitle === '💬') {
-      setChatTitle(
-        newMessage.text.slice(0, 50) +
-          (newMessage.text.length > 50 ? '...' : '')
-      );
-    }
-
-    dispatch({
-      type: ChatActionTypes.ADD_MESSAGE,
-      payload: { message: newMessage, chatInstanceId, userEmail: user.email },
-    });
-    const updatedMessages = [...state.messages, newMessage];
-    saveConversationHistory(chatInstanceId, chatTitle || '', updatedMessages);
   };
 
   const updateChatTitle = (newTitle: string) => {
@@ -325,7 +223,7 @@ export const useChatMessages = ({
     messages: state.messages,
     notificationCount: state.notificationCount,
     suggestions: state.suggestions,
-    error, // État d'erreur accessible par le composant parent
+    error,
     setMessages: (messages: FrontChatMessage[]) =>
       dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: { chatInstanceId, messages } }),
     setNotificationCount: (count: number) =>
