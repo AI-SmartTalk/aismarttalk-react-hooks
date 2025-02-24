@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { defaultApiUrl } from '../types/config';
 
 /**
  * Props for the useChatInstance hook
@@ -38,9 +39,13 @@ export const useChatInstance = ({
   user,
 }: UseChatInstanceProps) => {
   const {
-    apiUrl = 'https://aismarttalk.tech',
-    apiToken = '',
+    apiUrl,
+    apiToken
   } = config || {};
+
+  
+  const finalApiUrl = apiUrl || defaultApiUrl;
+  const finalApiToken = apiToken || '';
 
   const [chatInstanceId, setChatInstanceId] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -77,7 +82,7 @@ export const useChatInstance = ({
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        'appToken': apiToken,
+        'appToken': finalApiToken,
       };
 
       if (user?.token) {
@@ -85,7 +90,7 @@ export const useChatInstance = ({
         headers['Authorization'] = `Bearer ${user.token}`;
       }
 
-      const response = await fetch(`${apiUrl}/api/chat/createInstance`, {
+      const response = await fetch(`${finalApiUrl}/api/chat/createInstance`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ chatModelId, lang: newLang }),
@@ -137,7 +142,7 @@ export const useChatInstance = ({
 
   useEffect(() => {
     initializeChatInstance();
-  }, [chatModelId, lang, user, apiUrl, apiToken]);
+  }, [chatModelId, lang, user, finalApiUrl, finalApiToken]);
 
   return { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId, error };
 };

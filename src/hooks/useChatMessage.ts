@@ -20,6 +20,7 @@ import {
   saveSuggestions,
 } from '../utils/localStorageHelpers';
 import { UseChatMessagesOptions } from '../types/chatConfig';
+import { defaultApiUrl, defaultWsUrl } from '../types/config';
 
 export interface ChatHistoryItem {
   id: string;
@@ -69,10 +70,16 @@ export const useChatMessages = ({
 }: UseChatMessagesOptions) => {
   // Extraction des valeurs de config pour les autres paramètres
   const {
-    apiUrl = 'https://aismarttalk.tech',
-    wsUrl = 'wss://ws.223.io.aismarttalk.tech',
-    apiToken = '',
+    apiUrl,
+    wsUrl,
+    apiToken
   } = config || {};
+
+  
+
+  const finalApiUrl = apiUrl || defaultApiUrl;
+  const finalWsUrl = wsUrl || defaultWsUrl;
+  const finalApiToken = apiToken || '';
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const [socketStatus, setSocketStatus] = useState<string>('disconnected');
@@ -101,8 +108,8 @@ export const useChatMessages = ({
 
   const fetchMessagesFromApi = useCallback(async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/chat/history/${chatInstanceId}`, {
-        headers: apiToken ? { Authorization: `Bearer ${apiToken}` } : {},
+      const response = await fetch(`${finalApiUrl}/api/chat/history/${chatInstanceId}`, {
+        headers: finalApiToken ? { Authorization: `Bearer ${finalApiToken}` } : {},
       });
       if (response.status === 429) {
         setError("Trop de requêtes. Veuillez patienter avant de réessayer.");
@@ -126,7 +133,7 @@ export const useChatMessages = ({
       setError("Erreur lors de la récupération des messages : " + err.message);
       console.error(err);
     }
-  }, [apiUrl, apiToken, chatInstanceId, user.email]);
+  }, [finalApiUrl, finalApiToken, chatInstanceId, user.email]);
 
   useEffect(() => {
     if (!chatInstanceId) return;
@@ -151,7 +158,7 @@ export const useChatMessages = ({
 
   useEffect(() => {
     if (!chatInstanceId) return;
-    const socket = socketIOClient(wsUrl, {
+    const socket = socketIOClient(finalWsUrl, {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
       timeout: 20000,
@@ -159,7 +166,7 @@ export const useChatMessages = ({
       upgrade: true,
       forceNew: true,
       rejectUnauthorized: false,
-      transportOptions: { polling: { extraHeaders: { Origin: config?.apiUrl || 'https://aismarttalk.tech' } } },
+      transportOptions: { polling: { extraHeaders: { Origin: finalApiUrl } } },
     });
 
     socket.on('connect', () => {
@@ -219,14 +226,14 @@ export const useChatMessages = ({
 
     socket.on('connect_error', (err) => console.error('Socket connection error:', err));
     socket.on('reconnect_failed', () =>
-      console.error('Socket reconnect failed:', { url: wsUrl })
+      console.error('Socket reconnect failed:', { url: finalWsUrl })
     );
 
     return () => {
       socket.disconnect();
       setSocketStatus('disconnected');
     };
-  }, [chatInstanceId, user, wsUrl, chatModelId]);
+  }, [chatInstanceId, user, finalWsUrl, chatModelId]);
 
   useEffect(() => {
     if (state.messages.length > 0 && !chatTitle) {

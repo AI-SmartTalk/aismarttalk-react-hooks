@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { ChatModel } from "../types/chatModel";
+import { defaultApiUrl } from "../types/config";
 
 /**
  * A hook to fetch and manage chat model information
@@ -26,41 +27,44 @@ interface UseChatModelProps {
     config,
   }: UseChatModelProps) => {
     const {
-      apiUrl = 'https://aismarttalk.tech',
-      apiToken = '',
+      apiUrl,
+      apiToken
     } = config || {};
-  const [chatModel, setChatModel] = useState<ChatModel | null>(null);
 
-  const fetchChatModel = async () => {
-    try {
-      const { apiUrl = config?.apiUrl || 'https://aismarttalk.tech', apiToken } = config || {};
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
+    const finalApiUrl = apiUrl || defaultApiUrl;
+    const finalApiToken = apiToken || '';
 
-      if (apiToken) {
-        headers['appToken'] = apiToken;
+    const [chatModel, setChatModel] = useState<ChatModel | null>(null);
+
+    const fetchChatModel = async () => {
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (finalApiToken) {
+          headers['appToken'] = finalApiToken;
+        }
+
+        const response = await fetch(`${finalApiUrl}/api/chat/getModel?id=${chatModelId}`, {
+          method: 'GET',
+          headers,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch chat model: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setChatModel(data);
+      } catch (err) {
+        console.error('Error fetching chat model:', err);
       }
+    };
 
-      const response = await fetch(`${apiUrl}/api/chat/getModel?id=${chatModelId}`, {
-        method: 'GET',
-        headers,
-      });
+    useEffect(() => {
+      fetchChatModel();
+    }, [chatModelId]);
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch chat model: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      setChatModel(data);
-    } catch (err) {
-      console.error('Error fetching chat model:', err);
-    }
+    return { chatModel, setChatModel };
   };
-
-  useEffect(() => {
-    fetchChatModel();
-  }, [chatModelId]);
-
-  return { chatModel, setChatModel };
-};
