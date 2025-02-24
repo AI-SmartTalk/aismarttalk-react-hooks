@@ -32,7 +32,6 @@ export interface ChatHistoryItem {
  * Custom hook for managing chat messages and related functionality
  * @param {Object} options - The configuration options for the chat
  * @param {string} options.chatInstanceId - Unique identifier for the chat instance
- * @param {boolean} options.isOpen - Whether the chat window is open
  * @param {User} options.user - Current user information
  * @param {Function} options.setUser - Function to update user information
  * @param {string} options.chatModelId - Identifier for the chat model being used
@@ -63,7 +62,6 @@ export interface ChatHistoryItem {
  */
 export const useChatMessages = ({
   chatInstanceId,
-  isOpen,
   user,
   setUser,
   chatModelId, // Maintenant, c'est une propriété obligatoire hors config

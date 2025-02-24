@@ -10,7 +10,6 @@ export interface ChatConfig {
 export interface UseChatMessagesOptions {
   chatModelId: string;
   chatInstanceId: string;  
-  isOpen: boolean;
   user: User;
   setUser: (user: User) => void;
   config?: ChatConfig;
