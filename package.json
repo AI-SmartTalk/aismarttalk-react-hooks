@@ -1,6 +1,6 @@
 {
   "name": "@aismarttalk/react-hooks",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
@@ -17,11 +17,18 @@
   ],
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
-    "tsc" : "tsc --noEmit",
+    "tsc": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prepare": "npm run build"
   },
-  "keywords": ["react", "hooks", "chat", "ai", "websocket", "typescript"],
+  "keywords": [
+    "react",
+    "hooks",
+    "chat",
+    "ai",
+    "websocket",
+    "typescript"
+  ],
   "author": "AI Smarttalk",
   "license": "ISC",
   "description": "A collection of high-quality, reusable React hooks for integrating AI Smarttalk's AI Agents",
