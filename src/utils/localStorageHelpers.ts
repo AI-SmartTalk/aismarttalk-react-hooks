@@ -1,7 +1,7 @@
 // src/utils/localStorageHelpers.ts
 
-import { CTADTO } from '@/components/Chatbot/CTAComponent';
-import { FrontChatMessage } from '@/types/chat';
+import { CTADTO } from "../types/chat";
+import { FrontChatMessage } from "../types/chat";
 
 /**
  * Save conversation starters to local storage.
