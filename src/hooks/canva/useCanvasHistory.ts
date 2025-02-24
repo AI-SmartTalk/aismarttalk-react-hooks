@@ -162,7 +162,7 @@ export default function useCanvasHistory(chatModelId: string) {
    * @returns The canvas content as a single string
    */
   const toString = (): string => {
-    return canvas.content.join('\n');
+    return canvas.content.join('\n\n');
   };
 
   /**
