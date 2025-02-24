@@ -24,7 +24,7 @@ export const useSocketHandler = (
 ) => {
   useEffect(() => {
     if(!chatInstanceId || !chatModelId || !finalApiUrl) return;
-    
+
     const socket = socketIOClient(finalWsUrl, {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
@@ -32,8 +32,7 @@ export const useSocketHandler = (
       transports: ['polling', 'websocket'],
       upgrade: true,
       forceNew: true,
-      rejectUnauthorized: false,
-      transportOptions: { polling: { extraHeaders: { Origin: finalApiUrl } } },
+      rejectUnauthorized: false
     });
 
     socket.on('connect', () => {
