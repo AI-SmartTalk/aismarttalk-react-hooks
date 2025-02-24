@@ -2,6 +2,19 @@
 
 A collection of high-quality, reusable React hooks for integrating [AI Smarttalk](https://aismarttalk.tech)'s [AI Agents](https://aismarttalk.tech) into your react application. This library provides hooks for managing chat messages, user state, and chat instance initialization with robust error handling, token validation, and localStorage persistence.
 
+## What's New in 1.1.0
+
+### Introducing `useAISmarttalkChat`
+
+We're excited to introduce a new consolidated hook that combines the functionality of `useChatMessages`, `useUser`, and `useChatInstance` into a single, more powerful hook. This new hook provides a simpler, more intuitive API while maintaining all the features you love.
+
+
+#### Key Improvements:
+- **Simplified Integration**: One hook instead of three separate ones
+- **Better TypeScript Support**: Comprehensive JSDoc documentation and improved type definitions
+- **Reduced Boilerplate**: Less code needed to get started
+- **Enhanced Performance**: Optimized internal state management
+- **More Features**: Access to typing indicators, conversation starters, and active tools
 
 ---
 
@@ -34,89 +47,36 @@ yarn add @aismarttalk/react-hooks
 
 ## Getting Started
 
-### Using `useChatMessages`
+### Using `useAiSmarttalkChat`
 
 ```tsx
-import React from 'react';
-import useChatMessages from '@aismarttalk/react-hooks/hooks/useChatMessages';
-import { User } from '@aismarttalk/react-hooks/types/users';
+import { useAISmarttalkChat } from '@aismarttalk/react-hooks';
 
 const ChatComponent = () => {
-  // Example user object
-  const user: User = {
-    id: 'user123',
-    email: 'user@example.com',
-    name: 'John Doe',
-  };
-
-  // Using the hook with mandatory chatModelId and optional config
   const {
     messages,
     addMessage,
+    user,
+    setUser,
+    chatInstanceId,
     resetChat,
     socketStatus,
-    chatTitle,
-    updateChatTitle,
     error,
-  } = useChatMessages({
-    chatInstanceId: 'instance123',
-    isOpen: true,
-    user,
-    setUser: (updatedUser) => console.log('User updated:', updatedUser),
-    chatModelId: 'cm19b7zil0004llwr7xtrbogz', // Mandatory property
+    // ... and more
+  } = useAISmarttalkChat({
+    chatModelId: 'cm19b7zil0004llwr7xtrbogz',
+    lang: 'en',
     config: {
       apiUrl: 'https://aismarttalk.tech',
       wsUrl: 'wss://ws.223.io.aismarttalk.tech',
-      apiToken: 'your-api-token', // Optional
+      apiToken: 'your-api-token',
     },
   });
 
   return (
-    <div>
-      <h2>{chatTitle}</h2>
-      <p>Socket Status: {socketStatus}</p>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <div>
-        {messages.map((msg) => (
-          <div key={msg.id}>{msg.text}</div>
-        ))}
-      </div>
-      {/* Example of adding a new message */}
-      <button onClick={() => addMessage({ text: 'Hello, world!' })}>
-        Send Message
-      </button>
-      <button onClick={resetChat}>Reset Chat</button>
-    </div>
+    // Your chat UI implementation
   );
 };
-
-export default ChatComponent;
-```
-
-### Using `useUser`
-
-```tsx
-import React from 'react';
-import useUser from '@aismarttalk/react-hooks/hooks/useUser';
-
-const UserComponent = () => {
-  const { user, setUser, updateUserFromLocalStorage } = useUser();
-
-  return (
-    <div>
-      <h3>User: {user.name}</h3>
-      <p>Email: {user.email}</p>
-      <button onClick={() => setUser({ email: 'newuser@example.com' })}>
-        Update User
-      </button>
-      <button onClick={updateUserFromLocalStorage}>
-        Refresh User from Storage
-      </button>
-    </div>
-  );
-};
-
-export default UserComponent;
 ```
 
 ### Using `useChatInstance`
