@@ -28,6 +28,39 @@ export interface ChatHistoryItem {
   lastUpdated: string;
 }
 
+/**
+ * Custom hook for managing chat messages and related functionality
+ * @param {Object} options - The configuration options for the chat
+ * @param {string} options.chatInstanceId - Unique identifier for the chat instance
+ * @param {boolean} options.isOpen - Whether the chat window is open
+ * @param {User} options.user - Current user information
+ * @param {Function} options.setUser - Function to update user information
+ * @param {string} options.chatModelId - Identifier for the chat model being used
+ * @param {Object} options.config - Additional configuration options
+ * @param {string} [options.config.apiUrl] - API endpoint URL
+ * @param {string} [options.config.wsUrl] - WebSocket server URL
+ * @param {string} [options.config.apiToken] - Authentication token for API requests
+ * @returns {Object} Chat state and methods
+ * @returns {FrontChatMessage[]} returns.messages - Array of chat messages
+ * @returns {number} returns.notificationCount - Number of unread notifications
+ * @returns {string[]} returns.suggestions - Message suggestions
+ * @returns {string|null} returns.error - Error message if any
+ * @returns {Function} returns.setMessages - Function to set messages
+ * @returns {Function} returns.setNotificationCount - Function to update notification count
+ * @returns {Function} returns.updateSuggestions - Function to update suggestions
+ * @returns {Function} returns.addMessage - Function to add a new message
+ * @returns {Function} returns.resetChat - Function to reset the chat
+ * @returns {string} returns.socketStatus - Current WebSocket connection status
+ * @returns {TypingUser[]} returns.typingUsers - Array of currently typing users
+ * @returns {CTADTO[]} returns.conversationStarters - Available conversation starters
+ * @returns {Tool|null} returns.activeTool - Currently active tool
+ * @returns {Function} returns.fetchMessagesFromApi - Function to fetch messages from API
+ * @returns {string} returns.chatTitle - Current chat title
+ * @returns {Function} returns.updateChatTitle - Function to update chat title
+ * @returns {ChatHistoryItem[]} returns.conversations - Array of chat conversations
+ * @returns {Function} returns.setConversations - Function to update conversations
+ * @returns {Function} returns.saveConversationHistory - Function to save chat history
+ */
 export const useChatMessages = ({
   chatInstanceId,
   isOpen,
@@ -128,7 +161,6 @@ export const useChatMessages = ({
       upgrade: true,
       forceNew: true,
       rejectUnauthorized: false,
-      extraHeaders: { Origin: 'https://aismarttalk.tech' },
       transportOptions: { polling: { extraHeaders: { Origin: 'https://aismarttalk.tech' } } },
     });
 
@@ -139,7 +171,6 @@ export const useChatMessages = ({
     });
 
     socket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
       setSocketStatus('disconnected');
     });
 
@@ -182,7 +213,7 @@ export const useChatMessages = ({
       if (data.user && data.token) {
         const finalUser: User = { ...data.user, token: data.token };
         setUser(finalUser);
-        console.log('User logged in:', finalUser.email);
+        
       }
     });
 

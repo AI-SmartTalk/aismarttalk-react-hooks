@@ -1,17 +1,36 @@
 import { useEffect, useState } from 'react';
 
+/**
+ * Props for the useChatInstance hook
+ */
 interface UseChatInstanceProps {
+  /** ID of the chat model to use */
   chatModelId: string;   
+  /** Language code for the chat instance */
   lang: string;          
+  /** Optional configuration object */
   config?: {
+    /** Base API URL */
     apiUrl?: string;     
+    /** API authentication token */
     apiToken?: string;
   };
+  /** Optional user object */
   user?: {
+    /** User's authentication token */
     token?: string;
   };
 }
 
+/**
+ * Hook to manage a chat instance lifecycle
+ * 
+ * Handles creation, retrieval and reset of chat instances. Maintains the chat instance ID
+ * in both state and localStorage for persistence across page reloads.
+ * 
+ * @param props - Configuration options for the chat instance
+ * @returns Object containing the chat instance ID and methods to manage it
+ */
 export const useChatInstance = ({
   chatModelId,
   lang,
@@ -26,21 +45,16 @@ export const useChatInstance = ({
   const [chatInstanceId, setChatInstanceId] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
+  /**
+   * Initializes the chat instance by either retrieving an existing instance from localStorage
+   * or creating a new one if none exists
+   */
   const initializeChatInstance = async () => {
-    try {
-      console.log('Initializing chat instance with:', {
-        chatModelId,
-        lang,
-        userToken: user?.token ? 'present' : 'absent',
-      });
-
-      
+    try {    
       const savedInstance = localStorage.getItem(`chatInstanceId[${chatModelId}]`);
       if (savedInstance && savedInstance.length > 0) {
-        console.log('Found saved chat instance:', savedInstance);
         setChatInstanceId(savedInstance);
       } else {
-        console.log('No saved chat instance found, creating new one');
         await getNewInstance(lang);
       }
     } catch (err) {
@@ -49,11 +63,16 @@ export const useChatInstance = ({
         stack: err instanceof Error ? err.stack : undefined,
       });
       setError(err instanceof Error ? err : new Error('Unknown error'));
-      
       await getNewInstance(lang);
     }
   };
 
+  /**
+   * Creates a new chat instance with the specified language
+   * 
+   * @param newLang - Language code for the new chat instance
+   * @throws Error if the API request fails
+   */
   const getNewInstance = async (newLang: string) => {
     try {
       const headers: Record<string, string> = {
@@ -72,19 +91,15 @@ export const useChatInstance = ({
         body: JSON.stringify({ chatModelId, lang: newLang }),
       });
 
-      console.log('Create instance response status:', response.status);
-
       if (!response.status || response.status < 200 || response.status >= 300) {
         const errorText = await response.text();
         throw new Error(`Failed to create chat instance: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log('Created new chat instance:', data.chatInstanceId);
 
       try {
         localStorage.setItem(`chatInstanceId[${chatModelId}]`, data.chatInstanceId);
-        console.log('Saved chat instance to localStorage');
       } catch (storageError) {
         console.error('Error saving to localStorage:', {
           error: storageError instanceof Error ? storageError.message : 'Unknown storage error',
@@ -105,11 +120,12 @@ export const useChatInstance = ({
     }
   };
 
-  
+  /**
+   * Resets the chat instance by removing it from localStorage and clearing the state
+   */
   const resetInstance = () => {
     try {
       localStorage.removeItem(`chatInstanceId[${chatModelId}]`);
-      console.log('Removed chat instance from localStorage');
     } catch (err) {
       console.error('Error removing from localStorage:', {
         error: err instanceof Error ? err.message : 'Unknown error',
@@ -121,7 +137,6 @@ export const useChatInstance = ({
 
   useEffect(() => {
     initializeChatInstance();
-    
   }, [chatModelId, lang, user, apiUrl, apiToken]);
 
   return { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId, error };

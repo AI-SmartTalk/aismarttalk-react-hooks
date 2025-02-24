@@ -1,5 +1,6 @@
 export { useChatMessages } from "./hooks/useChatMessage";
 export { useChatInstance } from "./hooks/useChatInstance";
+export { default as useUser } from "./hooks/useUser";
 export type { User } from "./types/users";
 export type { FrontChatMessage, CTADTO } from "./types/chat";
 export type { TypingUser } from "./types/typingUsers";

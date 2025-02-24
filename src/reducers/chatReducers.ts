@@ -52,14 +52,12 @@ export const loadMessagesFromLocalStorage = (
 ): FrontChatMessage[] => {
   const savedMessages = localStorage.getItem(`chatMessages[${chatInstanceId}]`);
   if (!savedMessages || savedMessages === "undefined") {
-    console.log("No saved messages found for this chat instance.");
     return [];
   }
   try {
     const messages = JSON.parse(savedMessages);
     return messages;
   } catch (e) {
-    console.error("Error parsing saved messages from localStorage", e);
     return [];
   }
 };
@@ -89,7 +87,7 @@ export const chatReducer = (
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;
       if (!newMessage) return state;
-      
+
       const messageExists = state.messages.some(
         (msg) =>
           msg.text === newMessage.text &&
@@ -116,10 +114,13 @@ export const chatReducer = (
           `chatMessages[${action.payload.chatInstanceId}]`
         );
       }
-      return { ...state, messages: [], title: '💬' };
+      return { ...state, messages: [], title: "💬" };
 
     case ChatActionTypes.UPDATE_NOTIFICATION_COUNT:
-      return { ...state, notificationCount: action.payload.notificationCount || 0 };
+      return {
+        ...state,
+        notificationCount: action.payload.notificationCount || 0,
+      };
 
     case ChatActionTypes.UPDATE_SUGGESTIONS:
       return { ...state, suggestions: action.payload.suggestions || [] };
@@ -149,7 +150,7 @@ export const chatReducer = (
       };
 
     case ChatActionTypes.UPDATE_TITLE:
-      return { ...state, title: action.payload.title || '💬' };
+      return { ...state, title: action.payload.title || "💬" };
 
     default:
       return state;
@@ -160,6 +161,5 @@ export const initialChatState: ChatState = {
   messages: [],
   notificationCount: 0,
   suggestions: [],
-  title: '💬',
+  title: "💬",
 };
-

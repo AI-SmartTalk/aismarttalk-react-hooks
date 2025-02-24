@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 
+/**
+ * User interface representing a user in the system.
+ */
 export interface User {
   id?: string;
   email: string;
@@ -8,67 +11,108 @@ export interface User {
   token?: string;
 }
 
+/**
+ * The initial anonymous user used when no valid user data exists.
+ */
 const initialUser: User = {
-  id: 'anonymous',  // ID constant pour l'utilisateur anonyme
-  email: 'anonymous@example.com',
-  name: 'Anonymous',
+  id: "anonymous", // Constant identifier for anonymous users
+  email: "anonymous@example.com",
+  name: "Anonymous",
 };
 
-const isTokenValid = (user: User): boolean => {
+/**
+ * Checks whether the provided user's token is valid.
+ * Assumes that the token is a JWT and that its payload contains an "exp" property (expiration time in seconds).
+ *
+ * @param user - The user object to validate.
+ * @returns true if the token is valid; otherwise, false.
+ */
+function isTokenValid(user: User): boolean {
   if (!user.token) return false;
   try {
-    const payload = JSON.parse(atob(user.token.split('.')[1]));
+    // Extract payload from JWT (assumes JWT format: header.payload.signature)
+    const tokenParts = user.token.split(".");
+    if (tokenParts.length !== 3) return false;
+    const payload = JSON.parse(atob(tokenParts[1]));
+    // Compare expiration time (convert seconds to milliseconds)
     return payload.exp * 1000 > Date.now();
-  } catch {
+  } catch (error) {
     return false;
   }
-};
+}
 
+/**
+ * Custom React hook to manage user state.
+ * It loads the user from localStorage on mount, validates the token,
+ * and provides methods to update and persist the user.
+ *
+ * @returns An object containing the current user, a setter function, a method to update from localStorage, and the initial user.
+ */
 export default function useUser() {
-  const [user, setUser] = useState<User>(initialUser);
+  const [user, setUserState] = useState<User>(initialUser);
 
+  // Load user from localStorage when the component mounts.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
+    if (typeof window === "undefined") return;
+
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      try {
+        const parsedUser: User = JSON.parse(storedUser);
         if (isTokenValid(parsedUser)) {
-          console.log('Loading stored user:', parsedUser);
-          setUser(parsedUser);
+          setUserState(parsedUser);
         } else {
-          console.log('Token expired, using new anonymous user');
-          localStorage.removeItem('user');
-          setUser(initialUser);
+          localStorage.removeItem("user");
+          setUserState(initialUser);
         }
-      } else {
-        console.log('No stored user, using initial:', initialUser);
+      } catch (error) {
+        localStorage.removeItem("user");
+        setUserState(initialUser);
       }
+    } else {
     }
   }, []);
 
+  /**
+   * Reads and updates the user state from localStorage.
+   */
   const updateUserFromLocalStorage = () => {
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        console.log('Updating user from storage:', parsedUser);
-        setUser(parsedUser);
-      }
+    if (typeof window === "undefined") return;
+
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      try {
+        const parsedUser: User = JSON.parse(storedUser);
+
+        setUserState(parsedUser);
+      } catch (error) {}
     }
   };
 
-  const setUserAndStorage = (newUser: User) => {
-    console.log('Setting new user:', newUser);
-    const userToStore = {
+  /**
+   * Updates the user state and persists the new user to localStorage.
+   *
+   * @param newUser - The new user object to be set.
+   */
+  const setUser = (newUser: User) => {
+    // Ensure the user has a stable identifier; generate one from the email if missing.
+    const userToStore: User = {
       ...newUser,
-      id: newUser.id || `user-${newUser.email.split('@')[0]}` // Garantir un ID stable
+      id: newUser.id || `user-${newUser.email.split("@")[0]}`,
     };
-    console.log('Storing user:', userToStore);
-    setUser(userToStore);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('user', JSON.stringify(userToStore));
+
+    setUserState(userToStore);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("user", JSON.stringify(userToStore));
+      } catch (error) {}
     }
   };
 
-  return { user, setUser: setUserAndStorage, updateUserFromLocalStorage, initialUser };
+  return {
+    user,
+    setUser,
+    updateUserFromLocalStorage,
+    initialUser,
+  };
 }
