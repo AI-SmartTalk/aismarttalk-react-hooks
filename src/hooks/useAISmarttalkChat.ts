@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useChatInstance } from "./useChatInstance";
 import { useChatMessages } from "./useChatMessage";
 import useUser from "./useUser";
@@ -60,17 +60,38 @@ export const useAISmarttalkChat = ({
 }: UseAISmarttalkProps) => {
   const [error, setError] = useState<Error | null>(null);
 
+  // Memoize user-related hooks to prevent unnecessary re-renders
   const { user, setUser, updateUserFromLocalStorage } = useUser();
 
-  const { chatModel, setChatModel } = useChatModel({ chatModelId, config });
+  // Memoize chat model with useMemo to prevent unnecessary updates
+  const { chatModel, setChatModel } = useChatModel({ 
+    chatModelId, 
+    config 
+  });
 
-  const { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId } =
-    useChatInstance({
-      chatModelId,
-      lang,
-      config,
-      user: user ?? undefined,
-    });
+  // Memoize chat instance dependencies
+  const chatInstanceProps = useMemo(() => ({
+    chatModelId,
+    lang,
+    config,
+    user: user ?? undefined,
+  }), [chatModelId, lang, config, user]);
+
+  const { 
+    chatInstanceId, 
+    getNewInstance, 
+    resetInstance, 
+    setChatInstanceId 
+  } = useChatInstance(chatInstanceProps);
+
+  // Memoize chat messages dependencies with stable references
+  const chatMessagesProps = useMemo(() => ({
+    chatModelId,
+    chatInstanceId: chatInstanceId as string,
+    user,
+    setUser,
+    config,
+  }), [chatModelId, chatInstanceId, user, config]);
 
   const {
     messages,
@@ -86,20 +107,18 @@ export const useAISmarttalkChat = ({
     conversations,
     setConversations,
     updateChatTitle,
-    canvasHistory
-  } = useChatMessages({
-    chatModelId,
-    chatInstanceId: chatInstanceId as string,
-    user,
-    setUser,
-    config,
-  });
+    canvasHistory,
+    onSend,
+    isLoading
 
-  const resetAll = () => {
+  } = useChatMessages(chatMessagesProps);
+
+  // Memoize resetAll callback
+  const resetAll = useCallback(() => {
     resetInstance();
     resetChat();
     setChatModel(null);
-  };
+  }, [resetInstance, resetChat, setChatModel]);
 
   return {
     // Chat instance related
@@ -115,7 +134,8 @@ export const useAISmarttalkChat = ({
 
     // Messages related
     messages,
-    addMessage,
+    onSend,
+    isLoading,
     suggestions,
     setMessages,
     resetChat,

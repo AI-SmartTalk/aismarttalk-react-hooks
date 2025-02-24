@@ -102,7 +102,7 @@ export const useChatMessages = ({
     if (state.messages.length > 0) setActiveTool(null);
   }, [state.messages]);
 
-  const fetchMessagesFromApi = useCallback(async () => {
+  const fetchMessagesFromApi = useCallback(async () => {    
     try {
       const response = await fetch(`${finalApiUrl}/api/chat/history/${chatInstanceId}`, {
         headers: finalApiToken ? { Authorization: `Bearer ${finalApiToken}` } : {},
@@ -222,6 +222,75 @@ export const useChatMessages = ({
     }
   }, []);
 
+  const onSend = async (messageText: string) => {
+    if (state.isLoading) return;
+    dispatch({ type: ChatActionTypes.SET_LOADING, payload: { isLoading: true } });
+
+    // Create temporary message
+    const userMessage: FrontChatMessage = {
+      id: `temp-${Date.now()}`,
+      text: messageText,
+      isSent: true,
+      chatInstanceId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      user: {
+        id: user.id ?? "",
+        email: user.email ?? "",
+        name: user.name ?? "",
+        image: user.image ?? "",
+      },
+    };
+
+    addMessage(userMessage);
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        appToken: finalApiToken,
+      };
+
+      if (user?.token) {
+        headers["x-use-chatbot-auth"] = "true";
+        headers["Authorization"] = `Bearer ${user.token}`;
+      }
+
+      const options = {
+        url: `${finalApiUrl}/api/chat`,
+        headers: headers,
+        data: {
+          message: messageText,
+          messages: [...state.messages, userMessage],
+          chatInstanceId: chatInstanceId,
+          chatModelId: chatModelId,
+          lang: 'fr',
+        },
+      };
+
+      const response = await fetch(options.url, {
+        method: "POST",
+        headers: options.headers,
+        body: JSON.stringify(options.data),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const { message } = data;
+
+      if (message && message.id !== userMessage.id) {
+        // fetchMessagesFromApi();
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
+      dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: { chatInstanceId, messages: state.messages.filter((msg) => msg.id !== userMessage.id) } });
+    } finally {
+      dispatch({ type: ChatActionTypes.SET_LOADING, payload: { isLoading: false } });
+    }
+  };
+
   return {
     messages: state.messages,
     notificationCount: state.notificationCount,
@@ -247,6 +316,8 @@ export const useChatMessages = ({
     saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
       saveConversationHistory(chatInstanceId, title, messages),
     canvas: canvasHistory.canvas,
-    canvasHistory
+    canvasHistory,
+    isLoading: state.isLoading,
+    onSend
   };
 };
