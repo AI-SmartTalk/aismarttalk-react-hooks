@@ -1,12 +1,11 @@
 export { useChatMessages } from "./hooks/useChatMessage";
 export { useChatInstance } from "./hooks/useChatInstance";
-export { default as useAISmarttalkChat } from "./hooks/useAISmarttalkChat";
+export { useAISmarttalkChat } from "./hooks/useAISmarttalkChat";
 export { default as useUser } from "./hooks/useUser";
+
 export type { User } from "./types/users";
-export type { FrontChatMessage, CTADTO } from "./types/chat";
+export type { FrontChatMessage, CTADTO, ChatHistoryItem } from "./types/chat";
 export type { TypingUser } from "./types/typingUsers";
 export type { Tool } from "./types/tools";
 export type { ChatModel } from "./types/chatModel";
-export type { ChatConfig } from "./types/chatConfig";
-export type { UseChatMessagesOptions } from "./types/chatConfig";
-export type { ChatHistoryItem } from "./hooks/useChatMessage";
+export type { ChatConfig, UseChatMessagesOptions } from "./types/chatConfig";
