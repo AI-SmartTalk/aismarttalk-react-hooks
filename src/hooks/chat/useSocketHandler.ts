@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useCallback } from 'react';
+import { Dispatch, SetStateAction, useEffect, useCallback, useRef } from 'react';
 import socketIOClient from 'socket.io-client';
 import { ChatActionTypes } from '../../reducers/chatReducers';
 import { User } from '../../types/users';
@@ -23,7 +23,9 @@ export const useSocketHandler = (
   fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>
-) => {
+): any => {
+  const socketRef = useRef<any>(null);
+
   // Create stable references to callback functions
   const stableFetchMessages = useCallback(fetchMessagesFromApi, []);
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
@@ -33,17 +35,15 @@ export const useSocketHandler = (
 
     // Create socket with stable config
     const socket = socketIOClient(finalWsUrl, {
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-      timeout: 20000,
-      transports: ['polling', 'websocket'], // Try polling first, then websocket
-      upgrade: true,
-      forceNew: false,
-      rejectUnauthorized: false,
-      reconnection: true,
-      reconnectionDelayMax: 5000,
-      autoConnect: true
+      query: {
+        chatInstanceId,
+        userId: user.id || 'anonymous',
+        userEmail: user.email || 'anonymous@example.com',
+        userName: user.name || 'Anonymous',
+      },
     });
+
+    socketRef.current = socket;
 
     // Add error handling
     socket.on('connect_error', (err) => {
@@ -68,13 +68,21 @@ export const useSocketHandler = (
 
     socket.on('chat-message', (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        const isOwnMessage = user.email?.includes('anonymous@')
-          ? data.message.user?.email?.includes('anonymous@')
-          : data.message.user?.id === user.id;
+        const isOwnMessage = user && user.email && data.message.user && data.message.user.email
+          ? user.email === data.message.user.email
+          : user.id === data.message.user?.id;
+        
         if (!isOwnMessage) {
           dispatch({
             type: ChatActionTypes.ADD_MESSAGE,
-            payload: { message: data.message, chatInstanceId, userEmail: user.email },
+            payload: { 
+              message: {
+                ...data.message,
+                isSent: false  // Explicitly mark as not from current user
+              }, 
+              chatInstanceId, 
+              userEmail: user.email 
+            },
           });
         }
       }
@@ -132,5 +140,7 @@ export const useSocketHandler = (
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl]); // Keep minimal dependencies
+  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]); // Add user and finalApiUrl
+
+  return socketRef.current;
 }; 

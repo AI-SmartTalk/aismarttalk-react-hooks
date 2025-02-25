@@ -70,35 +70,20 @@ export const useAISmarttalkChat = ({
     config 
   });
 
-  // Memoize chat instance dependencies
-  const chatInstanceProps = useMemo(() => ({
-    chatModelId,
-    lang,
-    config,
-    user: user ?? undefined,
-  }), [chatModelId, lang, config, user]);
-
-  const { 
-    chatInstanceId, 
-    getNewInstance, 
-    resetInstance, 
-    setChatInstanceId 
-  } = useChatInstance(chatInstanceProps);
-
   // Memoize chat messages dependencies with stable references
   const chatMessagesProps = useMemo(() => ({
     chatModelId,
-    chatInstanceId: chatInstanceId as string,
     user,
     setUser,
     config,
-  }), [chatModelId, chatInstanceId, user, config]);
+    lang
+  }), [chatModelId, user, config, lang]);
 
   const {
     messages,
-    addMessage,
-    suggestions,
-    setMessages,
+    chatInstanceId,
+    getNewInstance,
+    selectConversation,
     socketStatus,
     typingUsers,
     conversationStarters,
@@ -109,21 +94,35 @@ export const useAISmarttalkChat = ({
     canvasHistory,
     onSend,
     isLoading,
-    selectConversation
+    updateChatTitle
   } = useChatMessages(chatMessagesProps);
 
   // Add new function to handle both chat instance and message selection
-  const handleConversationSelect = useCallback((id: string) => {
-    setChatInstanceId(id);
-    selectConversation(id);
-  }, [setChatInstanceId, selectConversation]);
+  const handleConversationSelect = useCallback(async (id: string) => {
+    try {
+      // First update the chat instance ID in localStorage
+      localStorage.setItem(`chatInstanceId[${chatModelId}]`, id);
+      
+      // Then update the chat instance ID in state
+      selectConversation(id);
+      
+      // Wait for state update to complete
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // Then select the conversation
+      await selectConversation(id);  // Pass the new ID twice since we're switching to it
+      
+    } catch (error) {
+      console.error('Error selecting conversation:', error);
+    }
+  }, [selectConversation, chatModelId]);
 
   return {
     // Chat instance related
     chatInstanceId,
     getNewInstance,
-    setChatInstanceId,
-    resetInstance,
+    selectConversation,
+    updateChatTitle,
 
     // User related
     user,
@@ -134,8 +133,6 @@ export const useAISmarttalkChat = ({
     messages,
     onSend,
     isLoading,
-    suggestions,
-    setMessages,
     socketStatus,
     typingUsers,
     conversationStarters,
