@@ -403,25 +403,22 @@ export const useChatMessages = ({
   }, [chatModelId]);
 
   useEffect(() => {
-    if (socketRef.current && chatInstanceId) {
-      console.log(
-        "Chat instance changed, reconnecting socket for:",
-        chatInstanceId
-      );
-      if (
-        socketRef.current.disconnect &&
-        typeof socketRef.current.disconnect === "function"
-      ) {
-        socketRef.current.disconnect();
-      }
-      if (
-        socketRef.current.connect &&
-        typeof socketRef.current.connect === "function"
-      ) {
-        socketRef.current.connect();
+    if (socketRef && socketRef.current && chatInstanceId) {
+      console.log("Chat instance changed, reconnecting socket for:", chatInstanceId);
+      
+      try {
+        if (socketRef.current.disconnect && typeof socketRef.current.disconnect === 'function') {
+          socketRef.current.disconnect();
+        }
+        
+        if (socketRef.current.connect && typeof socketRef.current.connect === 'function') {
+          socketRef.current.connect();
+        }
+      } catch (err) {
+        console.error("Error reconnecting socket:", err);
       }
     }
-  }, [chatInstanceId, socketRef]);
+  }, [chatInstanceId]);
 
   const onSend = async (messageText: string) => {
     if (state.isLoading || !chatInstanceId) return;
@@ -536,13 +533,26 @@ export const useChatMessages = ({
   };
 
   const updateChatTitle = useCallback(
-    (newTitle: string) => {
-      setChatTitle(newTitle);
+    (newTitle: string, specificChatInstanceId?: string) => {
+      // Use the specified ID if provided, otherwise use current ID
+      const targetInstanceId = specificChatInstanceId || chatInstanceId;
+      
+      if (!targetInstanceId) {
+        console.error("No chat instance ID available for title update");
+        return;
+      }
+      
+      console.log(`Updating title for chat instance: ${targetInstanceId} to "${newTitle}"`);
+      
+      // Only update current title if we're updating the active conversation
+      if (targetInstanceId === chatInstanceId) {
+        setChatTitle(newTitle);
+      }
 
       // Update conversations list with new title
       setConversations((prev) => {
         const updated = prev.map((conv) =>
-          conv.id === chatInstanceId ? { ...conv, title: newTitle } : conv
+          conv.id === targetInstanceId ? { ...conv, title: newTitle } : conv
         );
         localStorage.setItem(
           `chat-conversations-${chatModelId}`,
@@ -551,10 +561,18 @@ export const useChatMessages = ({
         return updated;
       });
 
-      // Update conversation history with new title
-      saveConversationHistory(chatInstanceId, newTitle, state.messages);
+      // Find the conversation to update in local storage
+      const conversationToUpdate = conversations.find(conv => conv.id === targetInstanceId);
+      if (conversationToUpdate) {
+        // Update conversation history with new title
+        saveConversationHistory(
+          targetInstanceId, 
+          newTitle, 
+          conversationToUpdate.messages || [] // Use messages from the specific conversation
+        );
+      }
     },
-    [chatInstanceId, chatModelId, state.messages]
+    [chatInstanceId, chatModelId, conversations]
   );
 
   return {
