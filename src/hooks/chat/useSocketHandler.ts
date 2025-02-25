@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect } from 'react';
+import { Dispatch, SetStateAction, useEffect, useCallback } from 'react';
 import socketIOClient from 'socket.io-client';
 import { ChatActionTypes } from '../../reducers/chatReducers';
 import { User } from '../../types/users';
@@ -24,23 +24,42 @@ export const useSocketHandler = (
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>
 ) => {
+  // Create stable references to callback functions
+  const stableFetchMessages = useCallback(fetchMessagesFromApi, []);
+  const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
+
   useEffect(() => {
     if(!chatInstanceId || !chatModelId || !finalApiUrl) return;
 
+    // Create socket with stable config
     const socket = socketIOClient(finalWsUrl, {
-      reconnectionAttempts: Infinity,
+      reconnectionAttempts: 5,
       reconnectionDelay: 2000,
       timeout: 20000,
-      transports: ['polling', 'websocket'],
+      transports: ['polling', 'websocket'], // Try polling first, then websocket
       upgrade: true,
-      forceNew: true,
-      rejectUnauthorized: false
+      forceNew: false,
+      rejectUnauthorized: false,
+      reconnection: true,
+      reconnectionDelayMax: 5000,
+      autoConnect: true
+    });
+
+    // Add error handling
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
+      setSocketStatus('error');
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.error('Socket reconnect failed:', { url: finalWsUrl });
+      setSocketStatus('failed');
     });
 
     socket.on('connect', () => {
       socket.emit('join', { chatInstanceId });
       setSocketStatus('connected');
-      fetchMessagesFromApi();
+      stableFetchMessages();
     });
 
     socket.on('disconnect', (reason) => {
@@ -62,7 +81,7 @@ export const useSocketHandler = (
     });
 
     socket.on('user-typing', (data: TypingUser) => {
-      debouncedTypingUsersUpdate(data);
+      stableTypingUpdate(data);
     });
 
     socket.on('update-suggestions', (data) => {
@@ -91,11 +110,6 @@ export const useSocketHandler = (
 
     socket.on('tool-run-start', (data: Tool) => setActiveTool(data));
 
-    socket.on('connect_error', (err) => console.error('Socket connection error:', err));
-    socket.on('reconnect_failed', () =>
-      console.error('Socket reconnect failed:', { url: finalWsUrl })
-    );
-
     socket.on('canvas:update', (canvas: Canvas) => {
       canvasHistory.updateCanvas(canvas);
     });
@@ -108,9 +122,15 @@ export const useSocketHandler = (
       canvasHistory.updateLineRange(start, end, lines);
     });
 
+    // Add reconnect event handler
+    socket.on('reconnect_attempt', () => {
+      console.log('Attempting to reconnect...');
+      setSocketStatus('connecting');
+    });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [chatInstanceId, user, chatModelId, finalWsUrl, finalApiUrl, debouncedTypingUsersUpdate, fetchMessagesFromApi, canvasHistory]);
+  }, [chatInstanceId, chatModelId, finalWsUrl]); // Keep minimal dependencies
 }; 

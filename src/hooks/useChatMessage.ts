@@ -65,6 +65,7 @@ export interface ChatHistoryItem {
  * @returns {Function} returns.saveConversationHistory - Function to save chat history
  * @returns {Canvas} returns.canvas - Canvas object
  * @returns {CanvasHistory} returns.canvasHistory - Canvas history object
+ * @returns {Function} returns.selectConversation - Function to select a conversation
  */
 export const useChatMessages = ({
   chatInstanceId,
@@ -160,52 +161,19 @@ export const useChatMessages = ({
   );
 
   useEffect(() => {
-    if (state.messages.length > 0 && !chatTitle) {
-      const firstMessage = state.messages[0];
-      setChatTitle(
-        firstMessage.text.slice(0, 50) +
-          (firstMessage.text.length > 50 ? '...' : '')
-      );
-    }
-  }, [state.messages, chatTitle]);
-
-  const resetChat = () => {
     if (!chatInstanceId) return;
-    if (state.messages.length > 0) {
-      saveConversationHistory(chatInstanceId, chatTitle || '', state.messages);
-    }
-    setChatTitle('💬');
-    setActiveTool(null);
-    dispatch({ type: ChatActionTypes.RESET_CHAT, payload: { chatInstanceId } });
-    dispatch({ type: ChatActionTypes.UPDATE_NOTIFICATION_COUNT, payload: { notificationCount: 0 } });
-  };
-
-  const updateChatTitle = (newTitle: string) => {
-    dispatch({ type: ChatActionTypes.UPDATE_TITLE, payload: { title: newTitle } });
-    setChatTitle(newTitle);
-    setConversations((prev) => {
-      const existing = prev.findIndex((c) => c.id === chatInstanceId);
-      if (existing !== -1) {
-        const updated = [...prev];
-        updated[existing] = { ...updated[existing], title: newTitle, lastUpdated: new Date().toISOString() };
-        localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
-        return updated;
-      }
-      return prev;
-    });
-    if (state.messages.length > 0) {
-      saveConversationHistory(chatInstanceId, newTitle, state.messages);
-    }
-  };
-
-  useEffect(() => {
-    if (!chatInstanceId) return;
+    
     const history = loadConversationHistory(chatInstanceId);
     if (history) {
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
-        payload: { chatInstanceId, messages: history.messages, title: history.title },
+        payload: { 
+          chatInstanceId, 
+          messages: history.messages,
+          title: history.title 
+        },
       });
+      setChatTitle(history.title);
     } else {
       fetchMessagesFromApi();
     }
@@ -215,7 +183,13 @@ export const useChatMessages = ({
     const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
     if (stored) {
       try {
-        setConversations(JSON.parse(stored));
+        const parsedConversations = JSON.parse(stored);
+        setConversations(prev => {
+          if (JSON.stringify(prev) !== stored) {
+            return parsedConversations;
+          }
+          return prev;
+        });
       } catch (e) {
         console.error('Error loading conversations:', e);
       }
@@ -319,9 +293,9 @@ export const useChatMessages = ({
   useEffect(() => {
     if (!chatInstanceId || !chatModelId) return;
     
-    setConversations((prev) => {
-      const existing = prev.findIndex((c) => c.id === chatInstanceId);
-      if (existing === -1) {
+    setConversations(prev => {
+      const existing = prev.find(c => c.id === chatInstanceId);
+      if (!existing) {
         const newConversation: ChatHistoryItem = {
           id: chatInstanceId,
           title: chatTitle || '💬',
@@ -329,12 +303,30 @@ export const useChatMessages = ({
           lastUpdated: new Date().toISOString()
         };
         const updated = [newConversation, ...prev];
-        localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
+        // Debounce the localStorage update to prevent rapid writes
+        const timeoutId = setTimeout(() => {
+          localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
+        }, 100);
         return updated;
       }
       return prev;
     });
-  }, [chatInstanceId, chatModelId]);
+  }, [chatInstanceId, chatModelId]); // Remove chatTitle and state.messages from dependencies
+
+  const selectConversation = useCallback((id: string) => {
+    const conversation = conversations.find(c => c.id === id);
+    if (conversation) {
+      dispatch({
+        type: ChatActionTypes.SET_MESSAGES,
+        payload: { 
+          chatInstanceId: id, 
+          messages: conversation.messages,
+          title: conversation.title 
+        },
+      });
+      setChatTitle(conversation.title);
+    }
+  }, [conversations]);
 
   return {
     messages: state.messages,
@@ -348,14 +340,12 @@ export const useChatMessages = ({
     updateSuggestions: (suggestions: string[]) =>
       dispatch({ type: ChatActionTypes.UPDATE_SUGGESTIONS, payload: { suggestions } }),
     addMessage,
-    resetChat,
     socketStatus,
     typingUsers,
     conversationStarters,
     activeTool,
     fetchMessagesFromApi,
     chatTitle,
-    updateChatTitle,
     conversations,
     setConversations,
     saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
@@ -363,6 +353,7 @@ export const useChatMessages = ({
     canvas: canvasHistory.canvas,
     canvasHistory,
     isLoading: state.isLoading,
-    onSend
+    onSend,
+    selectConversation
   };
 };

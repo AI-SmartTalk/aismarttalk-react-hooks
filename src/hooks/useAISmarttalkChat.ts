@@ -52,6 +52,7 @@ interface UseAISmarttalkProps {
  * @returns {Function} returns.updateChatTitle - Updates the title of the current chat
  * @returns {Function} returns.resetAll - Resets all chat state
  * @returns {Function} returns.fetchMessagesFromApi - Fetches messages from the API
+ * @returns {Function} returns.handleConversationSelect - Handles conversation selection
  */
 export const useAISmarttalkChat = ({
   chatModelId,
@@ -98,7 +99,6 @@ export const useAISmarttalkChat = ({
     addMessage,
     suggestions,
     setMessages,
-    resetChat,
     socketStatus,
     typingUsers,
     conversationStarters,
@@ -106,19 +106,17 @@ export const useAISmarttalkChat = ({
     fetchMessagesFromApi,
     conversations,
     setConversations,
-    updateChatTitle,
     canvasHistory,
     onSend,
-    isLoading
-
+    isLoading,
+    selectConversation
   } = useChatMessages(chatMessagesProps);
 
-  // Memoize resetAll callback
-  const resetAll = useCallback(() => {
-    resetInstance();
-    resetChat();
-    setChatModel(null);
-  }, [resetInstance, resetChat, setChatModel]);
+  // Add new function to handle both chat instance and message selection
+  const handleConversationSelect = useCallback((id: string) => {
+    setChatInstanceId(id);
+    selectConversation(id);
+  }, [setChatInstanceId, selectConversation]);
 
   return {
     // Chat instance related
@@ -138,7 +136,6 @@ export const useAISmarttalkChat = ({
     isLoading,
     suggestions,
     setMessages,
-    resetChat,
     socketStatus,
     typingUsers,
     conversationStarters,
@@ -152,14 +149,13 @@ export const useAISmarttalkChat = ({
     activeTool,
     conversations,
     setConversations,
-    updateChatTitle,
-
-    // Utility functions
-    resetAll,
     fetchMessagesFromApi,
 
     // Canva functions
-    canvasHistory
+    canvasHistory,
+
+    // New function
+    handleConversationSelect
   };
 };
 
