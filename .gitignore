@@ -3,3 +3,4 @@ dist
 *.tgz
 docs
 .DS_Store
+coverage
