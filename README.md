@@ -145,6 +145,11 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.2.1 - Fix Regression
+- 🐛 Fixed regression where suggestions were not being returned from useAISmarttalkChat hook
+- 🔄 Restored suggestions functionality to maintain expected behavior
+- ✅ Added additional validation to prevent future regressions
+
 ### 1.2.0 - Canvas System Update
 - ✨ Added canvas system for structured text handling
 - 🔄 Real-time collaborative editing support

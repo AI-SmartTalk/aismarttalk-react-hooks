@@ -94,6 +94,7 @@ export const useAISmarttalkChat = ({
     canvasHistory,
     onSend,
     isLoading,
+    suggestions,
     updateChatTitle,
     createNewChat
   } = useChatMessages(chatMessagesProps);
@@ -123,7 +124,7 @@ export const useAISmarttalkChat = ({
     chatInstanceId,
     createNewChat,
     selectConversation,
-    updateChatTitle,
+    updateChatTitle,    
 
     // User related
     user,
@@ -137,6 +138,7 @@ export const useAISmarttalkChat = ({
     socketStatus,
     typingUsers,
     conversationStarters,
+    suggestions,
 
     // Chat model related
     chatModel,
