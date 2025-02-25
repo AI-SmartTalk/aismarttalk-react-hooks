@@ -8,6 +8,7 @@ export enum ChatActionTypes {
   UPDATE_SUGGESTIONS = "UPDATE_SUGGESTIONS",
   UPDATE_MESSAGE = "UPDATE_MESSAGE",
   UPDATE_TITLE = "UPDATE_TITLE",
+  SET_LOADING = "SET_LOADING"
 }
 
 interface ChatState {
@@ -15,6 +16,7 @@ interface ChatState {
   notificationCount: number;
   suggestions: string[];
   title: string;
+  isLoading: boolean;
 }
 
 const saveMessagesToLocalStorage = (
@@ -72,6 +74,7 @@ interface ChatAction {
     suggestions?: string[];
     title?: string;
     userEmail?: string;
+    isLoading?: boolean;
   };
 }
 
@@ -152,6 +155,12 @@ export const chatReducer = (
     case ChatActionTypes.UPDATE_TITLE:
       return { ...state, title: action.payload.title || "💬" };
 
+    case ChatActionTypes.SET_LOADING:
+      return {
+        ...state,
+        isLoading: action.payload.isLoading ?? false,
+      };
+
     default:
       return state;
   }
@@ -162,4 +171,5 @@ export const initialChatState: ChatState = {
   notificationCount: 0,
   suggestions: [],
   title: "💬",
+  isLoading: false,
 };

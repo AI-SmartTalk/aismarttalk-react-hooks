@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useChatInstance } from "./useChatInstance";
 import { useChatMessages } from "./useChatMessage";
 import useUser from "./useUser";
@@ -52,6 +52,7 @@ interface UseAISmarttalkProps {
  * @returns {Function} returns.updateChatTitle - Updates the title of the current chat
  * @returns {Function} returns.resetAll - Resets all chat state
  * @returns {Function} returns.fetchMessagesFromApi - Fetches messages from the API
+ * @returns {Function} returns.handleConversationSelect - Handles conversation selection
  */
 export const useAISmarttalkChat = ({
   chatModelId,
@@ -60,24 +61,29 @@ export const useAISmarttalkChat = ({
 }: UseAISmarttalkProps) => {
   const [error, setError] = useState<Error | null>(null);
 
+  // Memoize user-related hooks to prevent unnecessary re-renders
   const { user, setUser, updateUserFromLocalStorage } = useUser();
 
-  const { chatModel, setChatModel } = useChatModel({ chatModelId, config });
+  // Memoize chat model with useMemo to prevent unnecessary updates
+  const { chatModel, setChatModel } = useChatModel({ 
+    chatModelId, 
+    config 
+  });
 
-  const { chatInstanceId, getNewInstance, resetInstance, setChatInstanceId } =
-    useChatInstance({
-      chatModelId,
-      lang,
-      config,
-      user: user ?? undefined,
-    });
+  // Memoize chat messages dependencies with stable references
+  const chatMessagesProps = useMemo(() => ({
+    chatModelId,
+    user,
+    setUser,
+    config,
+    lang
+  }), [chatModelId, user, config, lang]);
 
   const {
     messages,
-    addMessage,
-    suggestions,
-    setMessages,
-    resetChat,
+    chatInstanceId,
+    getNewInstance,
+    selectConversation,
     socketStatus,
     typingUsers,
     conversationStarters,
@@ -85,28 +91,39 @@ export const useAISmarttalkChat = ({
     fetchMessagesFromApi,
     conversations,
     setConversations,
+    canvasHistory,
+    onSend,
+    isLoading,
     updateChatTitle,
-    canvasHistory
-  } = useChatMessages({
-    chatModelId,
-    chatInstanceId: chatInstanceId as string,
-    user,
-    setUser,
-    config,
-  });
+    createNewChat
+  } = useChatMessages(chatMessagesProps);
 
-  const resetAll = () => {
-    resetInstance();
-    resetChat();
-    setChatModel(null);
-  };
+  // Add new function to handle both chat instance and message selection
+  const handleConversationSelect = useCallback(async (id: string) => {
+    try {
+      // First update the chat instance ID in localStorage
+      localStorage.setItem(`chatInstanceId[${chatModelId}]`, id);
+      
+      // Then update the chat instance ID in state
+      selectConversation(id);
+      
+      // Wait for state update to complete
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // Then select the conversation
+      await selectConversation(id);  // Pass the new ID twice since we're switching to it
+      
+    } catch (error) {
+      console.error('Error selecting conversation:', error);
+    }
+  }, [selectConversation, chatModelId]);
 
   return {
     // Chat instance related
     chatInstanceId,
-    getNewInstance,
-    setChatInstanceId,
-    resetInstance,
+    createNewChat,
+    selectConversation,
+    updateChatTitle,
 
     // User related
     user,
@@ -115,10 +132,8 @@ export const useAISmarttalkChat = ({
 
     // Messages related
     messages,
-    addMessage,
-    suggestions,
-    setMessages,
-    resetChat,
+    onSend,
+    isLoading,
     socketStatus,
     typingUsers,
     conversationStarters,
@@ -132,14 +147,13 @@ export const useAISmarttalkChat = ({
     activeTool,
     conversations,
     setConversations,
-    updateChatTitle,
-
-    // Utility functions
-    resetAll,
     fetchMessagesFromApi,
 
     // Canva functions
-    canvasHistory
+    canvasHistory,
+
+    // New function
+    handleConversationSelect
   };
 };
 

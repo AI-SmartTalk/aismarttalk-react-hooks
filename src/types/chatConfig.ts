@@ -9,8 +9,8 @@ export interface ChatConfig {
 
 export interface UseChatMessagesOptions {
   chatModelId: string;
-  chatInstanceId: string;  
   user: User;
   setUser: (user: User) => void;
   config?: ChatConfig;
+  lang: string;
 }

@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect } from 'react';
+import { Dispatch, SetStateAction, useEffect, useCallback, useRef } from 'react';
 import socketIOClient from 'socket.io-client';
 import { ChatActionTypes } from '../../reducers/chatReducers';
 import { User } from '../../types/users';
@@ -23,24 +23,43 @@ export const useSocketHandler = (
   fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>
-) => {
+): any => {
+  const socketRef = useRef<any>(null);
+
+  // Create stable references to callback functions
+  const stableFetchMessages = useCallback(fetchMessagesFromApi, []);
+  const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
+
   useEffect(() => {
     if(!chatInstanceId || !chatModelId || !finalApiUrl) return;
 
+    // Create socket with stable config
     const socket = socketIOClient(finalWsUrl, {
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 2000,
-      timeout: 20000,
-      transports: ['polling', 'websocket'],
-      upgrade: true,
-      forceNew: true,
-      rejectUnauthorized: false
+      query: {
+        chatInstanceId,
+        userId: user.id || 'anonymous',
+        userEmail: user.email || 'anonymous@example.com',
+        userName: user.name || 'Anonymous',
+      },
+    });
+
+    socketRef.current = socket;
+
+    // Add error handling
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err);
+      setSocketStatus('error');
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.error('Socket reconnect failed:', { url: finalWsUrl });
+      setSocketStatus('failed');
     });
 
     socket.on('connect', () => {
       socket.emit('join', { chatInstanceId });
       setSocketStatus('connected');
-      fetchMessagesFromApi();
+      stableFetchMessages();
     });
 
     socket.on('disconnect', (reason) => {
@@ -49,20 +68,28 @@ export const useSocketHandler = (
 
     socket.on('chat-message', (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        const isOwnMessage = user.email?.includes('anonymous@')
-          ? data.message.user?.email?.includes('anonymous@')
-          : data.message.user?.id === user.id;
+        const isOwnMessage = user && user.email && data.message.user && data.message.user.email
+          ? user.email === data.message.user.email
+          : user.id === data.message.user?.id;
+        
         if (!isOwnMessage) {
           dispatch({
             type: ChatActionTypes.ADD_MESSAGE,
-            payload: { message: data.message, chatInstanceId, userEmail: user.email },
+            payload: { 
+              message: {
+                ...data.message,
+                isSent: false  // Explicitly mark as not from current user
+              }, 
+              chatInstanceId, 
+              userEmail: user.email 
+            },
           });
         }
       }
     });
 
     socket.on('user-typing', (data: TypingUser) => {
-      debouncedTypingUsersUpdate(data);
+      stableTypingUpdate(data);
     });
 
     socket.on('update-suggestions', (data) => {
@@ -91,11 +118,6 @@ export const useSocketHandler = (
 
     socket.on('tool-run-start', (data: Tool) => setActiveTool(data));
 
-    socket.on('connect_error', (err) => console.error('Socket connection error:', err));
-    socket.on('reconnect_failed', () =>
-      console.error('Socket reconnect failed:', { url: finalWsUrl })
-    );
-
     socket.on('canvas:update', (canvas: Canvas) => {
       canvasHistory.updateCanvas(canvas);
     });
@@ -108,9 +130,17 @@ export const useSocketHandler = (
       canvasHistory.updateLineRange(start, end, lines);
     });
 
+    // Add reconnect event handler
+    socket.on('reconnect_attempt', () => {
+      console.log('Attempting to reconnect...');
+      setSocketStatus('connecting');
+    });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
     };
-  }, [chatInstanceId, user, chatModelId, finalWsUrl, finalApiUrl, debouncedTypingUsersUpdate, fetchMessagesFromApi, canvasHistory]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]); // Add user and finalApiUrl
+
+  return socketRef.current;
 }; 
