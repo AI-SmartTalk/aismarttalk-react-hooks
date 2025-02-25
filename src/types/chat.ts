@@ -19,3 +19,10 @@ export interface CTADTO {
   description: string;
   message: string;
 }
+
+export interface ChatHistoryItem {
+  id: string;
+  title: string;
+  messages: FrontChatMessage[];
+  lastUpdated: string;
+}

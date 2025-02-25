@@ -5,7 +5,7 @@ import {
   debounce,
   initialChatState,
 } from "../reducers/chatReducers";
-import { CTADTO, FrontChatMessage } from "../types/chat";
+import { ChatHistoryItem, CTADTO, FrontChatMessage } from "../types/chat";
 import { UseChatMessagesOptions } from "../types/chatConfig";
 import { defaultApiUrl, defaultWsUrl } from "../types/config";
 import { Tool } from "../types/tools";
@@ -18,13 +18,6 @@ import {
 import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
-
-export interface ChatHistoryItem {
-  id: string;
-  title: string;
-  messages: FrontChatMessage[];
-  lastUpdated: string;
-}
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -86,7 +79,7 @@ export const useChatMessages = ({
   const [chatTitle, setChatTitle] = useState<string>("");
   const [conversations, setConversations] = useState<ChatHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const activeToolTimeoutRef = useRef<number | null>(null);
+  const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const getNewInstance = async (newLang: string = lang) => {
     try {

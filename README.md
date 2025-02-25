@@ -1,5 +1,10 @@
 # 🤖 AI Smarttalk React Hooks
 
+[![Build Status](https://img.shields.io/github/actions/workflow/status/AI-SmartTalk/aismarttalk-react-hooks/test.yml?branch=main&label=tests)](https://github.com/AI-SmartTalk/aismarttalk-react-hooks/actions)
+[![Coverage Status](https://img.shields.io/codecov/c/github/AI-SmartTalk/aismarttalk-react-hooks/main.svg)](https://codecov.io/gh/AI-SmartTalk/aismarttalk-react-hooks)
+[![npm version](https://img.shields.io/npm/v/@aismarttalk/react-hooks.svg)](https://www.npmjs.com/package/@aismarttalk/react-hooks)
+[![License](https://img.shields.io/github/license/AI-SmartTalk/aismarttalk-react-hooks)](https://github.com/AI-SmartTalk/aismarttalk-react-hooks/blob/main/LICENSE)
+
 A collection of high-quality, reusable React hooks for integrating [AI Smarttalk](https://aismarttalk.tech)'s [AI Agents](https://aismarttalk.tech) into your React application. This library provides hooks for managing chat messages, user state, and chat instance initialization with robust error handling, token validation, and localStorage persistence.
 
 ---
