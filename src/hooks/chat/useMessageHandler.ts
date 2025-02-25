@@ -30,18 +30,19 @@ export const useMessageHandler = (
         image: user.image ?? '',
       },
     };
-
+  
     if (chatTitle === '💬') {
       setChatTitle(
         newMessage.text.slice(0, 50) +
           (newMessage.text.length > 50 ? '...' : '')
       );
     }
-
+  
     dispatch({
       type: ChatActionTypes.ADD_MESSAGE,
       payload: { message: newMessage, chatInstanceId, userEmail: user.email },
     });
+  
     const updatedMessages = [...messages, newMessage];
     saveConversationHistory(chatInstanceId, chatTitle || '', updatedMessages);
   };

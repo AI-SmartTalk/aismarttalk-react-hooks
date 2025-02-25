@@ -188,7 +188,7 @@ export const useChatMessages = ({
       if (existing !== -1) {
         const updated = [...prev];
         updated[existing] = { ...updated[existing], title: newTitle, lastUpdated: new Date().toISOString() };
-        localStorage.setItem('chat-conversations', JSON.stringify(updated));
+        localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
         return updated;
       }
       return prev;
@@ -212,7 +212,7 @@ export const useChatMessages = ({
   }, [chatInstanceId]);
 
   useEffect(() => {
-    const stored = localStorage.getItem('chat-conversations');
+    const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
     if (stored) {
       try {
         setConversations(JSON.parse(stored));
@@ -220,13 +220,12 @@ export const useChatMessages = ({
         console.error('Error loading conversations:', e);
       }
     }
-  }, []);
+  }, [chatModelId]);
 
   const onSend = async (messageText: string) => {
     if (state.isLoading) return;
     dispatch({ type: ChatActionTypes.SET_LOADING, payload: { isLoading: true } });
 
-    // Create temporary message
     const userMessage: FrontChatMessage = {
       id: `temp-${Date.now()}`,
       text: messageText,
@@ -281,7 +280,32 @@ export const useChatMessages = ({
       const { message } = data;
 
       if (message && message.id !== userMessage.id) {
-        // fetchMessagesFromApi();
+        const updatedMessages = [...state.messages, userMessage];
+        
+        // Save to conversation history
+        saveConversationHistory(chatInstanceId, chatTitle || '', updatedMessages);
+        
+        // Update conversations list, creating a new conversation if it doesn't exist
+        setConversations((prev) => {
+          const existing = prev.findIndex((c) => c.id === chatInstanceId);
+          const newConversation: ChatHistoryItem = {
+            id: chatInstanceId,
+            title: chatTitle || userMessage.text.slice(0, 50),
+            messages: updatedMessages,
+            lastUpdated: new Date().toISOString()
+          };
+
+          let updated;
+          if (existing !== -1) {
+            updated = [...prev];
+            updated[existing] = newConversation;
+          } else {
+            updated = [newConversation, ...prev];
+          }
+          
+          localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
+          return updated;
+        });
       }
     } catch (error) {
       console.error("Error sending message:", error);
@@ -290,6 +314,27 @@ export const useChatMessages = ({
       dispatch({ type: ChatActionTypes.SET_LOADING, payload: { isLoading: false } });
     }
   };
+
+  // Add this new effect to initialize conversation when chat instance changes
+  useEffect(() => {
+    if (!chatInstanceId || !chatModelId) return;
+    
+    setConversations((prev) => {
+      const existing = prev.findIndex((c) => c.id === chatInstanceId);
+      if (existing === -1) {
+        const newConversation: ChatHistoryItem = {
+          id: chatInstanceId,
+          title: chatTitle || '💬',
+          messages: state.messages,
+          lastUpdated: new Date().toISOString()
+        };
+        const updated = [newConversation, ...prev];
+        localStorage.setItem(`chat-conversations-${chatModelId}`, JSON.stringify(updated));
+        return updated;
+      }
+      return prev;
+    });
+  }, [chatInstanceId, chatModelId]);
 
   return {
     messages: state.messages,
