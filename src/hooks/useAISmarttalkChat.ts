@@ -94,7 +94,8 @@ export const useAISmarttalkChat = ({
     canvasHistory,
     onSend,
     isLoading,
-    updateChatTitle
+    updateChatTitle,
+    createNewChat
   } = useChatMessages(chatMessagesProps);
 
   // Add new function to handle both chat instance and message selection
@@ -120,7 +121,7 @@ export const useAISmarttalkChat = ({
   return {
     // Chat instance related
     chatInstanceId,
-    getNewInstance,
+    createNewChat,
     selectConversation,
     updateChatTitle,
 

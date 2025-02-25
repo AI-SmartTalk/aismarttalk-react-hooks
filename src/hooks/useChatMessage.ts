@@ -62,6 +62,7 @@ export interface ChatHistoryItem {
  * @returns {Function} returns.selectConversation - Function to select a conversation
  * @returns {string} returns.chatInstanceId - Current chat instance ID
  * @returns {Function} returns.getNewInstance - Function to get a new chat instance
+ * @returns {Function} returns.createNewChat - Function to create a new chat
  */
 export const useChatMessages = ({
   chatModelId,
@@ -575,6 +576,65 @@ export const useChatMessages = ({
     [chatInstanceId, chatModelId, conversations]
   );
 
+  // Fix pour le problème de fetch d'historique API lors de la création d'un nouveau chat
+  const createNewChat = useCallback(async () => {
+    try {
+      // Créer une nouvelle instance
+      const newInstanceId = await getNewInstance();
+      
+      if (!newInstanceId) {
+        console.error("Failed to create new chat instance");
+        return null;
+      }
+      
+      // Mise à jour explicite du chatInstanceId pour éviter les confusions
+      setChatInstanceId(newInstanceId);
+      localStorage.setItem(`chatInstanceId[${chatModelId}]`, newInstanceId);
+      
+      // Réinitialisation immédiate des messages dans l'état
+      dispatch({
+        type: ChatActionTypes.SET_MESSAGES,
+        payload: { chatInstanceId: newInstanceId, messages: [] },
+      });
+      
+      // Définir un titre par défaut
+      const defaultTitle = "💬 Nouvelle conversation";
+      setChatTitle(defaultTitle);
+      
+      // Créer un objet conversation pour l'historique
+      const newConversation: ChatHistoryItem = {
+        id: newInstanceId,
+        title: defaultTitle,
+        messages: [],
+        lastUpdated: new Date().toISOString(),
+      };
+      
+      // Ajouter à la liste des conversations
+      setConversations((prev) => {
+        const updated = [newConversation, ...prev];
+        localStorage.setItem(
+          `chat-conversations-${chatModelId}`,
+          JSON.stringify(updated)
+        );
+        return updated;
+      });
+      
+      // Sauvegarder dans l'historique local avec tableau vide explicite
+      saveConversationHistory(newInstanceId, defaultTitle, []);
+      
+      console.log(`Created new chat instance: ${newInstanceId}`);
+      
+      // Petit délai pour s'assurer que les états sont mis à jour
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      return newInstanceId;
+    } catch (error) {
+      console.error("Error creating new chat:", error);
+      setError(error instanceof Error ? error.message : "Unknown error");
+      return null;
+    }
+  }, [getNewInstance, chatModelId, dispatch, setChatInstanceId]);
+
   return {
     messages: state.messages,
     notificationCount: state.notificationCount,
@@ -614,5 +674,6 @@ export const useChatMessages = ({
     updateChatTitle,
     chatInstanceId,
     getNewInstance,
+    createNewChat,
   };
 };
