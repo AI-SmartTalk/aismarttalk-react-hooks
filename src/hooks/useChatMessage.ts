@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useState, useRef } from "react";
 import {
   ChatActionTypes,
   chatReducer,
@@ -86,6 +86,7 @@ export const useChatMessages = ({
   const [chatTitle, setChatTitle] = useState<string>("");
   const [conversations, setConversations] = useState<ChatHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const activeToolTimeoutRef = useRef<number | null>(null);
 
   const getNewInstance = async (newLang: string = lang) => {
     try {
@@ -236,10 +237,6 @@ export const useChatMessages = ({
       return prev.filter((u) => u.userId !== data.userId);
     });
   }, 500);
-
-  useEffect(() => {
-    if (state.messages.length > 0) setActiveTool(null);
-  }, [state.messages]);
 
   const fetchMessagesFromApi = useCallback(async () => {
     // Capture the current instance ID locally to ensure we're using the latest value
@@ -421,12 +418,35 @@ export const useChatMessages = ({
     }
   }, [chatInstanceId]);
 
+  const dismissActiveTool = useCallback((delay = 5000) => {
+    if (activeToolTimeoutRef.current) {
+      clearTimeout(activeToolTimeoutRef.current);
+    }
+    
+    activeToolTimeoutRef.current = setTimeout(() => {
+      setActiveTool(null);
+      activeToolTimeoutRef.current = null;
+    }, delay);
+  }, []);
+
+  const showTemporaryToolState = useCallback((state: string, icon?: string) => {
+    setActiveTool({
+      id: `temp-${state}-${Date.now()}`,
+      name: state,
+      icon: icon || "status",
+      type: "status"
+    } as Tool);
+    dismissActiveTool();
+  }, [dismissActiveTool]);
+
   const onSend = async (messageText: string) => {
     if (state.isLoading || !chatInstanceId) return;
     dispatch({
       type: ChatActionTypes.SET_LOADING,
       payload: { isLoading: true },
     });
+
+    showTemporaryToolState("Sending...", "loading");
 
     const userMessage: FrontChatMessage = {
       id: `temp-${Date.now()}`,
@@ -446,6 +466,8 @@ export const useChatMessages = ({
     addMessage(userMessage);
 
     try {
+      showTemporaryToolState("🧠", "thinking");
+
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
@@ -475,6 +497,7 @@ export const useChatMessages = ({
       });
 
       if (!response.ok) {
+        showTemporaryToolState("Error", "error");
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
@@ -518,6 +541,8 @@ export const useChatMessages = ({
       }
     } catch (error) {
       console.error("Error sending message:", error);
+      showTemporaryToolState("Error", "error");
+      
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
@@ -634,6 +659,32 @@ export const useChatMessages = ({
       return null;
     }
   }, [getNewInstance, chatModelId, dispatch, setChatInstanceId]);
+
+  useEffect(() => {
+    if (state.messages.length > 0) {
+      const lastMessage = state.messages[state.messages.length - 1];
+      if (
+        lastMessage && 
+        !lastMessage.isSent && 
+        lastMessage.user?.id !== user.id &&
+        lastMessage.user?.email !== user.email
+      ) {
+        setActiveTool(null);
+        if (activeToolTimeoutRef.current) {
+          clearTimeout(activeToolTimeoutRef.current);
+          activeToolTimeoutRef.current = null;
+        }
+      }
+    }
+  }, [state.messages, user.id, user.email]);
+
+  useEffect(() => {
+    return () => {
+      if (activeToolTimeoutRef.current) {
+        clearTimeout(activeToolTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return {
     messages: state.messages,
