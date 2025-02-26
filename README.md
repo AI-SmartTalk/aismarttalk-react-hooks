@@ -150,6 +150,11 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.2.2 - Fix User Token expiration
+- 🐛 Fixed user token expiration validation causing incorrect message attribution
+- 🔄 Added proper token expiry checks to prevent wrong user identification
+- ✅ Improved user session handling and authentication validation
+
 ### 1.2.1 - Fix Regression
 - 🐛 Fixed regression where suggestions were not being returned from useAISmarttalkChat hook
 - 🔄 Restored suggestions functionality to maintain expected behavior
