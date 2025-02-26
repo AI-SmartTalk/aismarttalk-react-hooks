@@ -18,6 +18,7 @@ import {
 import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
+import { initialUser } from "./useUser";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -151,21 +152,6 @@ export const useChatMessages = ({
         }
 
         const data = await response.json();
-
-        // IMPORTANT: Mettre à jour le user AVANT de traiter les messages
-        if (data.connectedOrAnonymousUser) {
-          setUser({
-            ...user,
-            id: data.connectedOrAnonymousUser.id,
-            email: data.connectedOrAnonymousUser.email,
-            name: data.connectedOrAnonymousUser.name,
-            image: data.connectedOrAnonymousUser.image,
-          });
-          console.log(
-            "User updated in selectConversation:",
-            data.connectedOrAnonymousUser
-          );
-        }
 
         const apiMessages = data.messages || [];
         if (apiMessages?.length > 0) {
