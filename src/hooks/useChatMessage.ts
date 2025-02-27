@@ -309,24 +309,26 @@ export const useChatMessages = ({
   useEffect(() => {
     if (socketRef && socketRef.current && chatInstanceId) {
       try {
-        if (
-          socketRef.current.disconnect &&
-          typeof socketRef.current.disconnect === "function"
-        ) {
-          socketRef.current.disconnect();
-        }
+        if (socketStatus === "disconnected") {
+          if (
+            socketRef.current.disconnect &&
+            typeof socketRef.current.disconnect === "function"
+          ) {
+            socketRef.current.disconnect();
+          }
 
-        if (
-          socketRef.current.connect &&
-          typeof socketRef.current.connect === "function"
-        ) {
-          socketRef.current.connect();
+          if (
+            socketRef.current.connect &&
+            typeof socketRef.current.connect === "function"
+          ) {
+            socketRef.current.connect();
+          }
         }
       } catch (err) {
         console.error("Error reconnecting socket:", err);
       }
     }
-  }, [chatInstanceId]);
+  }, [chatInstanceId, socketStatus]);
 
   const dismissActiveTool = useCallback((delay = 5000) => {
     if (activeToolTimeoutRef.current) {

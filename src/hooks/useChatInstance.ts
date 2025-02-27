@@ -139,6 +139,7 @@ export const useChatInstance = ({
   
 
   useEffect(() => {
+    if(isAdmin) return;
     initializeChatInstance();
   }, [chatModelId, lang, user, finalApiUrl, finalApiToken]);
 
