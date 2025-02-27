@@ -139,7 +139,7 @@ export const useChatMessages = ({
         setError(error instanceof Error ? error.message : "Unknown error");
       }
     },
-    [chatModelId, finalApiUrl, finalApiToken, getNewInstance]
+    [chatModelId, finalApiUrl, finalApiToken]
   );
 
   useEffect(() => {
@@ -559,7 +559,7 @@ export const useChatMessages = ({
       setError(error instanceof Error ? error.message : "Unknown error");
       return null;
     }
-  }, [getNewInstance, chatModelId, dispatch, setChatInstanceId]);
+  }, [chatModelId, dispatch]);
 
   useEffect(() => {
     if (state.messages.length > 0) {
