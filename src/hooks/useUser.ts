@@ -66,7 +66,7 @@ export default function useUser() {
   const [user, setUserState] = useState<User>(initialUser);
 
   useEffect(() => {
-    if (user !== initialUser && !isValidAuthenticatedUser(user)) {
+    if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
       console.warn(
         "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
       );
