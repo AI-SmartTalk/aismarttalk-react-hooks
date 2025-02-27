@@ -20,6 +20,12 @@ interface UseChatInstanceProps {
   user?: {
     /** User's authentication token */
     token?: string;
+    /** User's ID */
+    id?: string;
+    /** User's email */
+    email?: string;
+    /** User's name */
+    name?: string;
   };
   isAdmin?: boolean;
 }
@@ -42,7 +48,10 @@ export const useChatInstance = ({
 }: UseChatInstanceProps) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
-  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
+  
+  // Include user ID in storage key to separate instances per user
+  const userId = user?.id || `user-${user?.email?.split('@')[0] || 'anonymous'}`;
+  const storageKey = `chatInstanceId[${chatModelId}][${userId}]${isAdmin ? '-smartadmin': '-standard'}`;
 
   // Initialize state with empty string, we'll handle storage reading in useEffect
   const [chatInstanceId, setChatInstanceId] = useState<string>('');
@@ -71,7 +80,13 @@ export const useChatInstance = ({
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ chatModelId, lang }),
+        body: JSON.stringify({ 
+          chatModelId, 
+          lang,
+          userId,
+          userEmail: user?.email || 'anonymous@example.com',
+          userName: user?.name || 'Anonymous'
+        }),
       });
 
       if (!response.ok) {
@@ -81,6 +96,13 @@ export const useChatInstance = ({
 
       const data = await response.json();
       const instanceId = isAdmin ? data.instanceId : data.chatInstanceId;
+
+      // Clear any old instances for this user
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes(`chatInstanceId[${chatModelId}][${userId}]`)) {
+          localStorage.removeItem(key);
+        }
+      });
 
       localStorage.setItem(storageKey, instanceId);
       setChatInstanceId(instanceId);
@@ -101,14 +123,21 @@ export const useChatInstance = ({
       const savedInstance = localStorage.getItem(storageKey);
       
       // Clear any existing instance if switching between admin/non-admin modes
+      // or if the user has changed
       if (savedInstance) {
         const isAdminInstance = savedInstance.includes('-smartadmin');
-        if (isAdmin !== isAdminInstance) {
-          localStorage.removeItem(storageKey);
+        const shouldReinitialize = isAdmin !== isAdminInstance;
+
+        if (shouldReinitialize) {
+          // Clear all instances for this user
+          Object.keys(localStorage).forEach(key => {
+            if (key.includes(`chatInstanceId[${chatModelId}][${userId}]`)) {
+              localStorage.removeItem(key);
+            }
+          });
+
           if (isMounted) {
             setChatInstanceId(''); // Clear current instance before creating new one
-          }
-          if (isMounted) {
             try {
               await initializeChatInstance();
             } catch (error) {
@@ -137,7 +166,7 @@ export const useChatInstance = ({
     return () => {
       isMounted = false;
     };
-  }, [isAdmin, chatModelId]); // Add chatModelId dependency to handle model changes
+  }, [isAdmin, chatModelId, userId]); // Add userId to dependencies
 
   return {
     chatInstanceId,
