@@ -11,6 +11,7 @@ export interface ChatConfig {
   cdnUrl?: string;
   apiToken?: string;
   features?: ChatFeatures;
+  user?: User;
 }
 
 export const defaultFeatures: ChatFeatures = {

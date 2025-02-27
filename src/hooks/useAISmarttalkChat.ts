@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { ChatConfig, defaultFeatures } from "../types/chatConfig";
 import { ChatModel } from "../types/chatModel";
 import { useChatMessages } from "./useChatMessage";
@@ -61,7 +61,7 @@ export const useAISmarttalkChat = ({
   const [error, setError] = useState<Error | null>(null);
 
   // Memoize user-related hooks to prevent unnecessary re-renders
-  const { user, setUser, updateUserFromLocalStorage } = useUser();
+  const { user, setUser, updateUserFromLocalStorage } = useUser(config?.user);
 
   // Memoize chat model with useMemo to prevent unnecessary updates
   const { chatModel, setChatModel } = useChatModel({ 

@@ -150,6 +150,25 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.3.0 ✨ Add User Config
+- 🛠️ Allow user configuration 
+```ts
+const { user, messages, onSend /* ... other values */ } = useAISmarttalkChat({
+  chatModelId: "your-chat-model-id",
+  config: {
+    apiUrl: "your-api-url",
+    user: {
+      id: "custom-user-id",
+      email: "custom@email.com",
+      name: "Custom User",
+      // Optional fields
+      image: "https://example.com/avatar.jpg",
+      token: "your-auth-token"
+    }
+  }
+});
+```
+
 ### 1.2.4 Refactor: Split Responsibilities of useMessage
 - 🔄 Restructured the useMessage hook to separate concerns, enhancing maintainability.
 - ✅ Added support for features, enabling the client to communicate with the API regarding supported features (currently only Canva).

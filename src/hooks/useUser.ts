@@ -60,22 +60,18 @@ function isValidAuthenticatedUser(user: User): boolean {
  * It loads the user from localStorage on mount, validates the token,
  * and provides methods to update and persist the user.
  *
+ * @param initialUserOverride - Optional user object to override the default initial user
  * @returns An object containing the current user, a setter function, a method to update from localStorage, and the initial user.
  */
-export default function useUser() {
-  const [user, setUserState] = useState<User>(initialUser);
+export default function useUser(initialUserOverride?: User) {
+  const [user, setUserState] = useState<User>(initialUserOverride || initialUser);
 
   useEffect(() => {
-    if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
-      console.warn(
-        "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
-      );
-      localStorage.removeItem("user");
-      setUserState(initialUser);
+    if (initialUserOverride) {
+      setUser(initialUserOverride);
+      return; // Skip localStorage loading if we have an override
     }
-  });
 
-  useEffect(() => {
     if (typeof window === "undefined") return;
 
     const storedUser = localStorage.getItem("user");
@@ -96,7 +92,17 @@ export default function useUser() {
     } else {
       setUserState(initialUser);
     }
-  }, []);
+  }, [initialUserOverride]); // Only run when initialUserOverride changes
+
+  useEffect(() => {
+    if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
+      console.warn(
+        "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
+      );
+      localStorage.removeItem("user");
+      setUserState(initialUser);
+    }
+  });
 
   /**
    * Reads and updates the user state from localStorage.
