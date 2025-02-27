@@ -95,14 +95,8 @@ export const useChatInstance = ({
       }
 
       const data = await response.json();
-      const instanceId = isAdmin ? data.instanceId : data.chatInstanceId;
-
-      // Clear any old instances for this user
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes(`chatInstanceId[${chatModelId}][${userId}]`)) {
-          localStorage.removeItem(key);
-        }
-      });
+      // Both APIs return chatInstanceId in the same format
+      const instanceId = data.chatInstanceId;
 
       localStorage.setItem(storageKey, instanceId);
       setChatInstanceId(instanceId);
@@ -115,39 +109,12 @@ export const useChatInstance = ({
     }
   };
 
-  // Effect to handle mode changes and initialization
   useEffect(() => {
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
       const savedInstance = localStorage.getItem(storageKey);
       
-      // Clear any existing instance if switching between admin/non-admin modes
-      // or if the user has changed
-      if (savedInstance) {
-        const isAdminInstance = savedInstance.includes('-smartadmin');
-        const shouldReinitialize = isAdmin !== isAdminInstance;
-
-        if (shouldReinitialize) {
-          // Clear all instances for this user
-          Object.keys(localStorage).forEach(key => {
-            if (key.includes(`chatInstanceId[${chatModelId}][${userId}]`)) {
-              localStorage.removeItem(key);
-            }
-          });
-
-          if (isMounted) {
-            setChatInstanceId(''); // Clear current instance before creating new one
-            try {
-              await initializeChatInstance();
-            } catch (error) {
-              console.error('Failed to initialize new instance:', error);
-            }
-          }
-          return;
-        }
-      }
-
       if (savedInstance && savedInstance.length > 0) {
         if (isMounted) {
           setChatInstanceId(savedInstance);
@@ -166,7 +133,7 @@ export const useChatInstance = ({
     return () => {
       isMounted = false;
     };
-  }, [isAdmin, chatModelId, userId]); // Add userId to dependencies
+  }, [isAdmin, chatModelId, userId]); 
 
   return {
     chatInstanceId,
