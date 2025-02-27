@@ -71,7 +71,7 @@ export default function useUser() {
   // Check if the user is valid and authenticated on each render
   useEffect(() => {
     if (user !== initialUser && !isValidAuthenticatedUser(user)) {
-      console.log("User token invalid or missing, reverting to anonymous");
+      console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous");
       localStorage.removeItem("user");
       setUserState(initialUser);
     }
@@ -88,7 +88,7 @@ export default function useUser() {
         if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
-          console.log("Stored user invalid, clearing storage");
+          console.warn("[AI Smarttalk] Stored user invalid, clearing storage");
           localStorage.removeItem("user");
           setUserState(initialUser);
         }

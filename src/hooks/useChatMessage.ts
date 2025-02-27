@@ -156,14 +156,9 @@ export const useChatMessages = ({
         const apiMessages = data.messages || [];
         if (apiMessages?.length > 0) {
           const currentUserId = data.connectedOrAnonymousUser?.id || user?.id;
-          console.log("Current user ID in selectConversation:", currentUserId);
 
           const processedMessages = apiMessages.map((message: any) => {
             const isUserMessage = message.userId === currentUserId;
-            console.log(
-              `Message ${message.id} - userId: ${message.userId}, isUserMessage: ${isUserMessage}`
-            );
-
             return {
               id: message.id,
               text: message.text,
@@ -222,11 +217,8 @@ export const useChatMessages = ({
     const currentInstanceId = chatInstanceId;
 
     if (!currentInstanceId) {
-      console.log("No chatInstanceId available, skipping fetch");
       return;
     }
-
-    console.log(`Fetching messages for conversation: ${currentInstanceId}`);
 
     try {
       const response = await fetch(
@@ -247,7 +239,6 @@ export const useChatMessages = ({
 
       // Check if we're still on the same conversation
       if (currentInstanceId !== chatInstanceId) {
-        console.log("Conversation changed during fetch, discarding results");
         return;
       }
 
@@ -264,31 +255,16 @@ export const useChatMessages = ({
             name: data.connectedOrAnonymousUser.name,
             image: data.connectedOrAnonymousUser.image,
           });
-
-          console.log("User updated from API:", data.connectedOrAnonymousUser);
         }
       }
 
       if (apiMessages?.length > 0) {
-        // Récupérer l'ID de l'utilisateur connecté depuis la réponse API
         const currentUserId =
           data.connectedOrAnonymousUser?.id || user?.id || "anonymous";
 
-        console.log(
-          "Current user ID:",
-          currentUserId,
-          "for conversation:",
-          currentInstanceId
-        );
-
         const updatedMessages = apiMessages.map((message: any) => {
-          // Vérifier si ce message provient de l'utilisateur actuel
           const isUserMessage = message.userId === currentUserId;
-
-          console.log(
-            `Message ${message.id} - userId: ${message.userId}, isUserMessage: ${isUserMessage}`
-          );
-
+      
           return {
             id: message.id,
             text: message.text,
@@ -381,14 +357,18 @@ export const useChatMessages = ({
 
   useEffect(() => {
     if (socketRef && socketRef.current && chatInstanceId) {
-      console.log("Chat instance changed, reconnecting socket for:", chatInstanceId);
-      
       try {
-        if (socketRef.current.disconnect && typeof socketRef.current.disconnect === 'function') {
+        if (
+          socketRef.current.disconnect &&
+          typeof socketRef.current.disconnect === "function"
+        ) {
           socketRef.current.disconnect();
         }
-        
-        if (socketRef.current.connect && typeof socketRef.current.connect === 'function') {
+
+        if (
+          socketRef.current.connect &&
+          typeof socketRef.current.connect === "function"
+        ) {
           socketRef.current.connect();
         }
       } catch (err) {
@@ -401,22 +381,25 @@ export const useChatMessages = ({
     if (activeToolTimeoutRef.current) {
       clearTimeout(activeToolTimeoutRef.current);
     }
-    
+
     activeToolTimeoutRef.current = setTimeout(() => {
       setActiveTool(null);
       activeToolTimeoutRef.current = null;
     }, delay);
   }, []);
 
-  const showTemporaryToolState = useCallback((state: string, icon?: string) => {
-    setActiveTool({
-      id: `temp-${state}-${Date.now()}`,
-      name: state,
-      icon: icon || "status",
-      type: "status"
-    } as Tool);
-    dismissActiveTool();
-  }, [dismissActiveTool]);
+  const showTemporaryToolState = useCallback(
+    (state: string, icon?: string) => {
+      setActiveTool({
+        id: `temp-${state}-${Date.now()}`,
+        name: state,
+        icon: icon || "status",
+        type: "status",
+      } as Tool);
+      dismissActiveTool();
+    },
+    [dismissActiveTool]
+  );
 
   const onSend = async (messageText: string) => {
     if (state.isLoading || !chatInstanceId) return;
@@ -442,6 +425,7 @@ export const useChatMessages = ({
       },
     };
 
+    // Add message to state immediately
     addMessage(userMessage);
 
     try {
@@ -483,45 +467,44 @@ export const useChatMessages = ({
       const data = await response.json();
       const { message } = data;
 
-      if (message && message.id !== userMessage.id) {
-        const updatedMessages = [...state.messages, userMessage];
+      // Always save to history after successful API call, regardless of message ID comparison
+      const updatedMessages = [...state.messages, userMessage];
 
-        // Save to conversation history with current chatInstanceId
-        saveConversationHistory(
-          chatInstanceId,
-          chatTitle || "",
-          updatedMessages
+      // Save to conversation history with current chatInstanceId
+      saveConversationHistory(
+        chatInstanceId,
+        chatTitle || userMessage.text.slice(0, 50),
+        updatedMessages
+      );
+
+      // Update conversations list
+      setConversations((prev) => {
+        const existing = prev.findIndex((c) => c.id === chatInstanceId);
+        const newConversation: ChatHistoryItem = {
+          id: chatInstanceId,
+          title: chatTitle || userMessage.text.slice(0, 50),
+          messages: updatedMessages,
+          lastUpdated: new Date().toISOString(),
+        };
+
+        let updated;
+        if (existing !== -1) {
+          updated = [...prev];
+          updated[existing] = newConversation;
+        } else {
+          updated = [newConversation, ...prev];
+        }
+
+        localStorage.setItem(
+          `chat-conversations-${chatModelId}`,
+          JSON.stringify(updated)
         );
-
-        // Update conversations list
-        setConversations((prev) => {
-          const existing = prev.findIndex((c) => c.id === chatInstanceId);
-          const newConversation: ChatHistoryItem = {
-            id: chatInstanceId,
-            title: chatTitle || userMessage.text.slice(0, 50),
-            messages: updatedMessages,
-            lastUpdated: new Date().toISOString(),
-          };
-
-          let updated;
-          if (existing !== -1) {
-            updated = [...prev];
-            updated[existing] = newConversation;
-          } else {
-            updated = [newConversation, ...prev];
-          }
-
-          localStorage.setItem(
-            `chat-conversations-${chatModelId}`,
-            JSON.stringify(updated)
-          );
-          return updated;
-        });
-      }
+        return updated;
+      });
     } catch (error) {
       console.error("Error sending message:", error);
       showTemporaryToolState("Error", "error");
-      
+
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
@@ -541,14 +524,12 @@ export const useChatMessages = ({
     (newTitle: string, specificChatInstanceId?: string) => {
       // Use the specified ID if provided, otherwise use current ID
       const targetInstanceId = specificChatInstanceId || chatInstanceId;
-      
+
       if (!targetInstanceId) {
         console.error("No chat instance ID available for title update");
         return;
       }
-      
-      console.log(`Updating title for chat instance: ${targetInstanceId} to "${newTitle}"`);
-      
+
       // Only update current title if we're updating the active conversation
       if (targetInstanceId === chatInstanceId) {
         setChatTitle(newTitle);
@@ -567,12 +548,14 @@ export const useChatMessages = ({
       });
 
       // Find the conversation to update in local storage
-      const conversationToUpdate = conversations.find(conv => conv.id === targetInstanceId);
+      const conversationToUpdate = conversations.find(
+        (conv) => conv.id === targetInstanceId
+      );
       if (conversationToUpdate) {
         // Update conversation history with new title
         saveConversationHistory(
-          targetInstanceId, 
-          newTitle, 
+          targetInstanceId,
+          newTitle,
           conversationToUpdate.messages || [] // Use messages from the specific conversation
         );
       }
@@ -585,26 +568,26 @@ export const useChatMessages = ({
     try {
       // Créer une nouvelle instance
       const newInstanceId = await getNewInstance();
-      
+
       if (!newInstanceId) {
         console.error("Failed to create new chat instance");
         return null;
       }
-      
+
       // Mise à jour explicite du chatInstanceId pour éviter les confusions
       setChatInstanceId(newInstanceId);
       localStorage.setItem(`chatInstanceId[${chatModelId}]`, newInstanceId);
-      
+
       // Réinitialisation immédiate des messages dans l'état
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: { chatInstanceId: newInstanceId, messages: [] },
       });
-      
+
       // Définir un titre par défaut
       const defaultTitle = "💬 Nouvelle conversation";
       setChatTitle(defaultTitle);
-      
+
       // Créer un objet conversation pour l'historique
       const newConversation: ChatHistoryItem = {
         id: newInstanceId,
@@ -612,7 +595,7 @@ export const useChatMessages = ({
         messages: [],
         lastUpdated: new Date().toISOString(),
       };
-      
+
       // Ajouter à la liste des conversations
       setConversations((prev) => {
         const updated = [newConversation, ...prev];
@@ -622,15 +605,13 @@ export const useChatMessages = ({
         );
         return updated;
       });
-      
+
       // Sauvegarder dans l'historique local avec tableau vide explicite
       saveConversationHistory(newInstanceId, defaultTitle, []);
-      
-      console.log(`Created new chat instance: ${newInstanceId}`);
-      
+
       // Petit délai pour s'assurer que les états sont mis à jour
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       return newInstanceId;
     } catch (error) {
       console.error("Error creating new chat:", error);
@@ -643,8 +624,8 @@ export const useChatMessages = ({
     if (state.messages.length > 0) {
       const lastMessage = state.messages[state.messages.length - 1];
       if (
-        lastMessage && 
-        !lastMessage.isSent && 
+        lastMessage &&
+        !lastMessage.isSent &&
         lastMessage.user?.id !== user.id &&
         lastMessage.user?.email !== user.email
       ) {

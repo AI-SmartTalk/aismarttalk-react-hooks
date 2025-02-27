@@ -132,7 +132,7 @@ export const useSocketHandler = (
 
     // Add reconnect event handler
     socket.on('reconnect_attempt', () => {
-      console.log('Attempting to reconnect...');
+      console.log('[AI Smarttalk]  Attempting to reconnect...');
       setSocketStatus('connecting');
     });
 
