@@ -150,6 +150,10 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.2.4 Refactor: Split Responsibilities of useMessage
+- 🔄 Restructured the useMessage hook to separate concerns, enhancing maintainability.
+- ✅ Added support for features, enabling the client to communicate with the API regarding supported features (currently only Canva).
+
 ### 1.2.3 Enhanced History Management for Uninitialized States
 - 🔄 Improved handling of chat history when it has not been initialized yet, ensuring a smoother user experience.
 - ✅ Added checks to prevent errors when accessing uninitialized history, providing fallback mechanisms.
