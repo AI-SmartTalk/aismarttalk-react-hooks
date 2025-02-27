@@ -93,26 +93,51 @@ export const useChatInstance = ({
     }
   };
 
+  // Effect to handle mode changes and initialization
   useEffect(() => {
-    const savedInstance = localStorage.getItem(storageKey);
-    
-    // Clear any existing instance if switching between admin/non-admin modes
-    if (savedInstance) {
-      const isAdminInstance = savedInstance.includes('-smartadmin');
-      if (isAdmin !== isAdminInstance) {
-        localStorage.removeItem(storageKey);
-        setChatInstanceId('');
-        initializeChatInstance().catch(console.error);
-        return;
-      }
-    }
+    let isMounted = true;
 
-    if (savedInstance && savedInstance.length > 0) {
-      setChatInstanceId(savedInstance);
-    } else if (!chatInstanceId) {
-      initializeChatInstance().catch(console.error);
-    }
-  }, [isAdmin]); // Add isAdmin dependency to handle mode changes
+    const initializeOrSwitchInstance = async () => {
+      const savedInstance = localStorage.getItem(storageKey);
+      
+      // Clear any existing instance if switching between admin/non-admin modes
+      if (savedInstance) {
+        const isAdminInstance = savedInstance.includes('-smartadmin');
+        if (isAdmin !== isAdminInstance) {
+          localStorage.removeItem(storageKey);
+          if (isMounted) {
+            setChatInstanceId(''); // Clear current instance before creating new one
+          }
+          if (isMounted) {
+            try {
+              await initializeChatInstance();
+            } catch (error) {
+              console.error('Failed to initialize new instance:', error);
+            }
+          }
+          return;
+        }
+      }
+
+      if (savedInstance && savedInstance.length > 0) {
+        if (isMounted) {
+          setChatInstanceId(savedInstance);
+        }
+      } else if (!chatInstanceId && isMounted) {
+        try {
+          await initializeChatInstance();
+        } catch (error) {
+          console.error('Failed to initialize instance:', error);
+        }
+      }
+    };
+
+    initializeOrSwitchInstance();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAdmin, chatModelId]); // Add chatModelId dependency to handle model changes
 
   return {
     chatInstanceId,

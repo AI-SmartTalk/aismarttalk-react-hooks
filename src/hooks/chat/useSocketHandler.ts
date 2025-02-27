@@ -39,7 +39,21 @@ export const useSocketHandler = (
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
   useEffect(() => {
-    if (!chatInstanceId || !chatModelId || !finalApiUrl) return;
+    if (!chatInstanceId || !chatModelId || !finalApiUrl) {
+      if (socketRef.current) {
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
+    }
+
+    // Cleanup previous socket if it exists
+    if (socketRef.current) {
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
 
     const socket = socketIOClient(finalWsUrl, {
       query: {
@@ -48,6 +62,7 @@ export const useSocketHandler = (
         userEmail: user.email || "anonymous@example.com",
         userName: user.name || "Anonymous",
       },
+      forceNew: true, // Force a new connection
     });
 
     socketRef.current = socket;
@@ -156,9 +171,13 @@ export const useSocketHandler = (
     });
 
     return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
+      if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+      }
+      socketRef.current = null;
     };
   }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]);
-  return socketRef.current;
+
+  return socketRef;
 };
