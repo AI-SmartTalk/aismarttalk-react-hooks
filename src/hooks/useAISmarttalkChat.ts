@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useChatInstance } from "./useChatInstance";
 import { useChatMessages } from "./useChatMessage";
 import useUser from "./useUser";
-import { ChatConfig } from "../types/chatConfig";
+import { ChatConfig, defaultFeatures } from "../types/chatConfig";
 import { ChatModel } from "../types/chatModel";
 import { useChatModel } from "./useChatModel";
 
@@ -70,14 +70,21 @@ export const useAISmarttalkChat = ({
     config 
   });
 
+  // Get features configuration with defaults
+  const features = useMemo(() => ({
+    ...defaultFeatures,
+    ...config?.features,
+  }), [config?.features]);
+
   // Memoize chat messages dependencies with stable references
   const chatMessagesProps = useMemo(() => ({
     chatModelId,
     user,
     setUser,
     config,
-    lang
-  }), [chatModelId, user, config, lang]);
+    lang,
+    isAdmin: features.smartadmin
+  }), [chatModelId, user, config, lang, features.smartadmin]);
 
   const {
     messages,
@@ -150,6 +157,9 @@ export const useAISmarttalkChat = ({
     conversations,
     setConversations,
     fetchMessagesFromApi,
+
+    // Features
+    features,
 
     // Canva functions
     canvasHistory,

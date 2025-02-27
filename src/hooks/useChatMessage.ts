@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   ChatActionTypes,
   chatReducer,
@@ -18,7 +18,6 @@ import {
 import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
-import { initialUser } from "./useUser";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -31,6 +30,7 @@ import { initialUser } from "./useUser";
  * @param {string} [options.config.wsUrl] - WebSocket server URL
  * @param {string} [options.config.apiToken] - Authentication token for API requests
  * @param {string} [options.lang] - Language for the chat
+ * @param {boolean} [options.isAdmin] - Indicates if the user is an admin
  * @returns {Object} Chat state and methods
  * @returns {FrontChatMessage[]} returns.messages - Array of chat messages
  * @returns {number} returns.notificationCount - Number of unread notifications
@@ -64,6 +64,7 @@ export const useChatMessages = ({
   setUser,
   config,
   lang = "en",
+  isAdmin = false,
 }: UseChatMessagesOptions) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
@@ -428,22 +429,30 @@ export const useChatMessages = ({
         headers["Authorization"] = `Bearer ${user.token}`;
       }
 
-      const options = {
-        url: `${finalApiUrl}/api/chat`,
-        headers: headers,
-        data: {
-          message: messageText,
-          messages: [...state.messages, userMessage],
-          chatInstanceId,
-          chatModelId: chatModelId,
-          lang: "fr",
-        },
+      const endpoint = isAdmin 
+        ? `/api/admin/chatModel/${chatModelId}/smartadmin/chat`
+        : `${finalApiUrl}/api/chat`;
+
+      const requestData = isAdmin ? {
+        query: messageText,
+        message: messageText,
+        lang,
+        chatInstanceId,
+        chatModelId,
+        timezone: new Date().toString(),
+        userAgent: navigator.userAgent
+      } : {
+        message: messageText,
+        messages: [...state.messages, userMessage],
+        chatInstanceId,
+        chatModelId,
+        lang,
       };
 
-      const response = await fetch(options.url, {
+      const response = await fetch(endpoint, {
         method: "POST",
-        headers: options.headers,
-        body: JSON.stringify(options.data),
+        headers: headers,
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
