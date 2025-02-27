@@ -55,12 +55,15 @@ export const useSocketHandler = (
       socketRef.current = null;
     }
 
+    // Ensure we have a consistent user ID
+    const userId = user?.id || `user-${user?.email?.split('@')[0] || 'anonymous'}`;
+
     const socket = socketIOClient(finalWsUrl, {
       query: {
         chatInstanceId,
-        userId: user.id || "anonymous",
-        userEmail: user.email || "anonymous@example.com",
-        userName: user.name || "Anonymous",
+        userId,
+        userEmail: user?.email || "anonymous@example.com",
+        userName: user?.name || "Anonymous",
       },
       forceNew: true, // Force a new connection
     });
@@ -78,7 +81,12 @@ export const useSocketHandler = (
     });
 
     socket.on("connect", () => {
-      socket.emit("join", { chatInstanceId });
+      socket.emit("join", { 
+        chatInstanceId,
+        userId,
+        userEmail: user?.email || "anonymous@example.com",
+        userName: user?.name || "Anonymous"
+      });
       setSocketStatus("connected");
       stableFetchMessages();
     });
@@ -89,10 +97,8 @@ export const useSocketHandler = (
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        const isOwnMessage =
-          user && user.email && data.message.user && data.message.user.email
-            ? user.email === data.message.user.email
-            : user.id === data.message.user?.id;
+        const isOwnMessage = data.message.user?.id === userId ||
+          (user?.email && data.message.user?.email === user.email);
 
         if (!isOwnMessage) {
           dispatch({
@@ -103,7 +109,8 @@ export const useSocketHandler = (
                 isSent: false,
               },
               chatInstanceId,
-              userEmail: user.email,
+              userId,
+              userEmail: user?.email,
             },
           });
         }
