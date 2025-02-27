@@ -52,32 +52,6 @@ export const useChatInstance = ({
    */
   const initializeChatInstance = async () => {
     try {
-      const savedInstance = localStorage.getItem(
-        `chatInstanceId[${chatModelId}]`
-      );
-      if (savedInstance && savedInstance.length > 0) {
-        setChatInstanceId(savedInstance);
-      } else {
-        await getNewInstance(lang);
-      }
-    } catch (err) {
-      console.error("Error initializing chat instance:", {
-        error: err instanceof Error ? err.message : "Unknown error",
-        stack: err instanceof Error ? err.stack : undefined,
-      });
-      setError(err instanceof Error ? err : new Error("Unknown error"));
-      await getNewInstance(lang);
-    }
-  };
-
-  /**
-   * Creates a new chat instance with the specified language
-   *
-   * @param newLang - Language code for the new chat instance
-   * @throws Error if the API request fails
-   */
-  const getNewInstance = async (newLang: string): Promise<string> => {
-    try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
@@ -92,7 +66,7 @@ export const useChatInstance = ({
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ chatModelId, lang: newLang }),
+        body: JSON.stringify({ chatModelId, lang: lang }),
       });
 
       if (!response.status || response.status < 200 || response.status >= 300) {
@@ -139,13 +113,20 @@ export const useChatInstance = ({
   
 
   useEffect(() => {
-    if(isAdmin) return;
-    initializeChatInstance();
-  }, [chatModelId, lang, user, finalApiUrl, finalApiToken]);
+    // Skip initialization for admin mode unless chatInstanceId is empty
+    if (isAdmin && chatInstanceId) return;
+    
+    const savedInstance = localStorage.getItem(`chatInstanceId[${chatModelId}]`);
+    if (savedInstance && savedInstance.length > 0) {
+      setChatInstanceId(savedInstance);
+    } else if (!chatInstanceId) {
+      initializeChatInstance();
+    }
+  }, [chatModelId]); // Only depend on chatModelId changes
 
   return {
     chatInstanceId,
-    getNewInstance,
+    getNewInstance: initializeChatInstance,
     setChatInstanceId,
     error,
   };

@@ -88,7 +88,7 @@ export const useChatMessages = ({
     async (id: string | undefined) => {
       try {
         if (!id) {
-          await getNewInstance(lang);
+          await getNewInstance();
           return;
         }
 
@@ -149,7 +149,7 @@ export const useChatMessages = ({
     if (savedInstance && !chatInstanceId) {
       selectConversation(savedInstance);
     } else if (!savedInstance && !chatInstanceId) {
-      getNewInstance(lang);
+      getNewInstance();
     }
   }, [chatModelId, getNewInstance]);
 
@@ -307,28 +307,24 @@ export const useChatMessages = ({
   }, [chatModelId]);
 
   useEffect(() => {
-    if (socketRef && socketRef.current && chatInstanceId) {
-      try {
-        if (socketStatus === "disconnected") {
-          if (
-            socketRef.current.disconnect &&
-            typeof socketRef.current.disconnect === "function"
-          ) {
-            socketRef.current.disconnect();
-          }
+    if (!chatInstanceId || !socketRef?.current) return;
 
-          if (
-            socketRef.current.connect &&
-            typeof socketRef.current.connect === "function"
-          ) {
-            socketRef.current.connect();
-          }
+    const shouldReconnect = socketStatus === "disconnected" && !isAdmin;
+    
+    if (shouldReconnect) {
+      try {
+        if (socketRef.current.disconnect && typeof socketRef.current.disconnect === "function") {
+          socketRef.current.disconnect();
+        }
+
+        if (socketRef.current.connect && typeof socketRef.current.connect === "function") {
+          socketRef.current.connect();
         }
       } catch (err) {
         console.error("Error reconnecting socket:", err);
       }
     }
-  }, [chatInstanceId, socketStatus]);
+  }, [chatInstanceId, socketStatus, isAdmin]);
 
   const dismissActiveTool = useCallback((delay = 5000) => {
     if (activeToolTimeoutRef.current) {
@@ -517,7 +513,7 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
-      const newInstanceId = await getNewInstance(lang);
+      const newInstanceId = await getNewInstance();
 
       if (!newInstanceId) {
         console.error("Failed to create new chat instance");
