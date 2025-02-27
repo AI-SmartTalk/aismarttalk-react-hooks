@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useChatInstance } from "./useChatInstance";
-import { useChatMessages } from "./useChatMessage";
-import useUser from "./useUser";
+import { useCallback, useMemo, useState } from "react";
 import { ChatConfig, defaultFeatures } from "../types/chatConfig";
 import { ChatModel } from "../types/chatModel";
+import { useChatMessages } from "./useChatMessage";
 import { useChatModel } from "./useChatModel";
+import useUser from "./useUser";
 
 /**
  * Configuration props for the AI Smarttalk Chat hook

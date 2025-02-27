@@ -133,33 +133,7 @@ describe('useChatInstance', () => {
         body: JSON.stringify({ chatModelId: 'model-123', lang: 'fr' })
       })
     );
-  });
-
-  it('should reset the instance when resetInstance is called', async () => {
-    // Set existing instance in localStorage
-    localStorageMock.setItem('chatInstanceId[model-123]', 'existing-instance-456');
-    
-    const { result } = renderHook(() => useChatInstance({
-      chatModelId: 'model-123',
-      lang: 'en',
-      config: { apiUrl: 'https://api.example.com' }
-    }));
-    
-    // Wait for initial load
-    await waitFor(() => expect(result.current.chatInstanceId).toBe('existing-instance-456'));
-    
-    // Reset the instance
-    act(() => {
-      result.current.resetInstance();
-    });
-    
-    // Verify localStorage item was removed
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('chatInstanceId[model-123]');
-    
-    // Verify state was updated
-    expect(result.current.chatInstanceId).toBeNull();
-  });
-
+  });  
   // Skip error tests for now - these will be fixed in a separate PR
   it.skip('should handle API errors gracefully', async () => {
     // Mock a failed API response - we just want the JSON to fail

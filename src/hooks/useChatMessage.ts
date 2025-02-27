@@ -18,6 +18,7 @@ import {
 import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
+import useChatInstance from "./useChatInstance";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -71,7 +72,7 @@ export const useChatMessages = ({
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const [chatInstanceId, setChatInstanceId] = useState<string>("");
+  const {chatInstanceId, setChatInstanceId, getNewInstance, } = useChatInstance({chatModelId, lang, config, isAdmin:isAdmin})
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [conversationStarters, setConversationStarters] = useState<CTADTO[]>(
@@ -81,52 +82,13 @@ export const useChatMessages = ({
   const [chatTitle, setChatTitle] = useState<string>("");
   const [conversations, setConversations] = useState<ChatHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const getNewInstance = async (newLang: string = lang) => {
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        appToken: finalApiToken,
-      };
-
-      if (user?.token) {
-        headers["x-use-chatbot-auth"] = "true";
-        headers["Authorization"] = `Bearer ${user.token}`;
-      }
-
-      const response = await fetch(`${finalApiUrl}/api/chat/createInstance`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ chatModelId, lang: newLang }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create chat instance: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const newInstanceId = data.chatInstanceId;
-
-      localStorage.setItem(`chatInstanceId[${chatModelId}]`, newInstanceId);
-      setChatInstanceId(newInstanceId);
-      dispatch({
-        type: ChatActionTypes.RESET_CHAT,
-        payload: { chatInstanceId: newInstanceId },
-      });
-
-      return newInstanceId;
-    } catch (err) {
-      console.error("Error creating new instance:", err);
-      throw err;
-    }
-  };
+  const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);  
 
   const selectConversation = useCallback(
     async (id: string | undefined) => {
       try {
         if (!id) {
-          await getNewInstance();
+          await getNewInstance(lang);
           return;
         }
 
@@ -187,7 +149,7 @@ export const useChatMessages = ({
     if (savedInstance && !chatInstanceId) {
       selectConversation(savedInstance);
     } else if (!savedInstance && !chatInstanceId) {
-      getNewInstance();
+      getNewInstance(lang);
     }
   }, [chatModelId, getNewInstance]);
 
@@ -430,7 +392,7 @@ export const useChatMessages = ({
       }
 
       const endpoint = isAdmin 
-        ? `/api/admin/chatModel/${chatModelId}/smartadmin/chat`
+        ? `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/chat`
         : `${finalApiUrl}/api/chat`;
 
       const requestData = isAdmin ? {
@@ -553,7 +515,7 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
-      const newInstanceId = await getNewInstance();
+      const newInstanceId = await getNewInstance(lang);
 
       if (!newInstanceId) {
         console.error("Failed to create new chat instance");
