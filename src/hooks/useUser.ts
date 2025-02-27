@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 /**
  * User interface representing a user in the system.
@@ -64,37 +64,33 @@ function isValidAuthenticatedUser(user: User): boolean {
  * @returns An object containing the current user, a setter function, a method to update from localStorage, and the initial user.
  */
 export default function useUser(initialUserOverride?: User) {
-  const [user, setUserState] = useState<User>(initialUserOverride || initialUser);
-
-  useEffect(() => {
+  // Use initialUserOverride if provided, otherwise try localStorage, finally fall back to initialUser
+  const [user, setUserState] = useState<User>(() => {
     if (initialUserOverride) {
-      setUser(initialUserOverride);
-      return; // Skip localStorage loading if we have an override
+      return initialUserOverride;
     }
 
-    if (typeof window === "undefined") return;
-
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsedUser: User = JSON.parse(storedUser);
-        if (isValidAuthenticatedUser(parsedUser)) {
-          setUserState(parsedUser);
-        } else {
-          console.warn("[AI Smarttalk] Stored user invalid, clearing storage");
-          localStorage.removeItem("user");
-          setUserState(initialUser);
+    if (typeof window !== "undefined") {
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) {
+        try {
+          const parsedUser: User = JSON.parse(storedUser);
+          if (isValidAuthenticatedUser(parsedUser)) {
+            return parsedUser;
+          }
+        } catch (error) {
+          console.warn("[AI Smarttalk] Failed to parse stored user");
         }
-      } catch (error) {
-        localStorage.removeItem("user");
-        setUserState(initialUser);
       }
-    } else {
-      setUserState(initialUser);
     }
-  }, [initialUserOverride]); // Only run when initialUserOverride changes
+    
+    return initialUser;
+  });
 
+  // Only validate non-override users
   useEffect(() => {
+    if (initialUserOverride) return; // Skip validation for override users
+
     if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
       console.warn(
         "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
@@ -102,23 +98,47 @@ export default function useUser(initialUserOverride?: User) {
       localStorage.removeItem("user");
       setUserState(initialUser);
     }
-  });
+  }, [user, initialUserOverride]);
+
+  /**
+   * Updates the user state and persists the new user to localStorage.
+   * Will not persist initialUserOverride to maintain its temporary nature.
+   *
+   * @param newUser - The new user object to be set.
+   */
+  const setUser = useCallback((newUser: User) => {
+    const userToStore: User = {
+      ...newUser,
+      id: newUser.id || `user-${newUser.email.split("@")[0]}`,
+    };
+
+    setUserState(userToStore);
+    
+    // Only persist to localStorage if this isn't an override user
+    if (typeof window !== "undefined" && !initialUserOverride) {
+      try {
+        localStorage.setItem("user", JSON.stringify(userToStore));
+      } catch (error) {
+        console.warn("[AI Smarttalk] Failed to persist user to localStorage");
+      }
+    }
+  }, [initialUserOverride]);
 
   /**
    * Reads and updates the user state from localStorage.
+   * Will not override an initialUserOverride.
    */
-  const updateUserFromLocalStorage = () => {
-    if (typeof window === "undefined") return;
+  const updateUserFromLocalStorage = useCallback(() => {
+    if (initialUserOverride || typeof window === "undefined") return;
 
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
       try {
         const parsedUser: User = JSON.parse(storedUser);
-
         if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
-          console.log("[AI Smarttalk]  Stored user invalid during update, clearing storage");
+          console.warn("[AI Smarttalk] Stored user invalid during update, clearing storage");
           localStorage.removeItem("user");
           setUserState(initialUser);
         }
@@ -127,26 +147,7 @@ export default function useUser(initialUserOverride?: User) {
         setUserState(initialUser);
       }
     }
-  };
-
-  /**
-   * Updates the user state and persists the new user to localStorage.
-   *
-   * @param newUser - The new user object to be set.
-   */
-  const setUser = (newUser: User) => {
-    const userToStore: User = {
-      ...newUser,
-      id: newUser.id || `user-${newUser.email.split("@")[0]}`,
-    };
-
-    setUserState(userToStore);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("user", JSON.stringify(userToStore));
-      } catch (error) {}
-    }
-  };
+  }, [initialUserOverride]);
 
   return {
     user,
