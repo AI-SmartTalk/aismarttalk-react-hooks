@@ -44,10 +44,8 @@ export const useChatInstance = ({
   const finalApiToken = config?.apiToken || "";
   const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
 
-  const [chatInstanceId, setChatInstanceId] = useState<string>(() => {
-    const saved = localStorage.getItem(storageKey);
-    return saved || '';
-  });
+  // Initialize state with empty string, we'll handle storage reading in useEffect
+  const [chatInstanceId, setChatInstanceId] = useState<string>('');
   const [error, setError] = useState<Error | null>(null);
 
   /**
@@ -94,20 +92,27 @@ export const useChatInstance = ({
       throw err;
     }
   };
-  
 
   useEffect(() => {
-    // Skip initialization for admin mode unless chatInstanceId is empty
-    if (isAdmin && chatInstanceId) return;
-    
     const savedInstance = localStorage.getItem(storageKey);
+    
+    // Clear any existing instance if switching between admin/non-admin modes
+    if (savedInstance) {
+      const isAdminInstance = savedInstance.includes('-smartadmin');
+      if (isAdmin !== isAdminInstance) {
+        localStorage.removeItem(storageKey);
+        setChatInstanceId('');
+        initializeChatInstance().catch(console.error);
+        return;
+      }
+    }
+
     if (savedInstance && savedInstance.length > 0) {
       setChatInstanceId(savedInstance);
     } else if (!chatInstanceId) {
-      // Only initialize if we don't have an instance and can't restore from storage
       initializeChatInstance().catch(console.error);
     }
-  }, []); // Remove chatModelId dependency since we handle it in initializeChatInstance
+  }, [isAdmin]); // Add isAdmin dependency to handle mode changes
 
   return {
     chatInstanceId,
