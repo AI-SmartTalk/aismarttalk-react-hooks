@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { defaultApiUrl } from "../types/config";
 
 /**
@@ -48,21 +48,24 @@ export const useChatInstance = ({
 }: UseChatInstanceProps) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
-  
-  // Include user ID in storage key to separate instances per user
-  const userId = user?.id || `user-${user?.email?.split('@')[0] || 'anonymous'}`;
-  const storageKey = `chatInstanceId[${chatModelId}][${userId}]${isAdmin ? '-smartadmin': '-standard'}`;
+  const storageKey = `chatInstanceId[${chatModelId}]${isAdmin ? '-smartadmin': ''}`;
 
-  // Initialize state with empty string, we'll handle storage reading in useEffect
   const [chatInstanceId, setChatInstanceId] = useState<string>('');
   const [error, setError] = useState<Error | null>(null);
+  const [isChanging, setIsChanging] = useState<boolean>(false);
 
-  /**
-   * Initializes the chat instance by either retrieving an existing instance from localStorage
-   * or creating a new one if none exists
-   */
+  const cleanup = useCallback(() => {
+    setChatInstanceId('');
+    localStorage.removeItem(storageKey);
+    setIsChanging(true);
+    // Give time for consumers to cleanup their sockets
+    return new Promise(resolve => setTimeout(resolve, 100));
+  }, [storageKey]);
+
   const initializeChatInstance = async () => {
     try {
+      await cleanup();
+      
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
@@ -83,7 +86,6 @@ export const useChatInstance = ({
         body: JSON.stringify({ 
           chatModelId, 
           lang,
-          userId,
           userEmail: user?.email || 'anonymous@example.com',
           userName: user?.name || 'Anonymous'
         }),
@@ -95,16 +97,17 @@ export const useChatInstance = ({
       }
 
       const data = await response.json();
-      // Both APIs return chatInstanceId in the same format
       const instanceId = data.chatInstanceId;
 
       localStorage.setItem(storageKey, instanceId);
       setChatInstanceId(instanceId);
+      setIsChanging(false);
       setError(null);
       return instanceId;
     } catch (err) {
       console.error("Error in initializeChatInstance:", err);
       setError(err instanceof Error ? err : new Error("Failed to create chat instance"));
+      setIsChanging(false);
       throw err;
     }
   };
@@ -118,6 +121,7 @@ export const useChatInstance = ({
       if (savedInstance && savedInstance.length > 0) {
         if (isMounted) {
           setChatInstanceId(savedInstance);
+          setIsChanging(false);
         }
       } else if (!chatInstanceId && isMounted) {
         try {
@@ -133,13 +137,15 @@ export const useChatInstance = ({
     return () => {
       isMounted = false;
     };
-  }, [isAdmin, chatModelId, userId]); 
+  }, [isAdmin, chatModelId]); 
 
   return {
     chatInstanceId,
     getNewInstance: initializeChatInstance,
     setChatInstanceId,
     error,
+    isChanging,
+    cleanup
   };
 };
 
