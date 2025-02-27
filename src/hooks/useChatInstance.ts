@@ -104,9 +104,10 @@ export const useChatInstance = ({
     if (savedInstance && savedInstance.length > 0) {
       setChatInstanceId(savedInstance);
     } else if (!chatInstanceId) {
-      initializeChatInstance();
+      // Only initialize if we don't have an instance and can't restore from storage
+      initializeChatInstance().catch(console.error);
     }
-  }, [chatModelId]); // Only depend on chatModelId changes
+  }, []); // Remove chatModelId dependency since we handle it in initializeChatInstance
 
   return {
     chatInstanceId,

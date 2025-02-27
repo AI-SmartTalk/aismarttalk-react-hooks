@@ -201,7 +201,17 @@ export const useChatMessages = ({
       const apiMessages = data.messages || [];
 
       if (data.connectedOrAnonymousUser) {
-        if (user?.id !== data.connectedOrAnonymousUser.id) {
+        // Only update user if it's significantly different and we don't have a config-provided user
+        const shouldUpdateUser = 
+          !config?.user && // Don't update if user was provided in config
+          user?.id !== data.connectedOrAnonymousUser.id && 
+          (
+            user?.email !== data.connectedOrAnonymousUser.email ||
+            user?.name !== data.connectedOrAnonymousUser.name ||
+            user?.image !== data.connectedOrAnonymousUser.image
+          );
+
+        if (shouldUpdateUser) {
           setUser({
             ...user,
             id: data.connectedOrAnonymousUser.id,
