@@ -125,22 +125,18 @@ export const useChatMessages = ({
     async (id: string | undefined) => {
       try {
         if (!id) {
-          // Create new chat
           await getNewInstance();
           return;
         }
 
-        // Update instance ID first
         setChatInstanceId(id);
         localStorage.setItem(`chatInstanceId[${chatModelId}]`, id);
 
-        // Reset current messages
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
           payload: { chatInstanceId: id, messages: [] },
         });
 
-        // Load messages for this conversation
         const response = await fetch(`${finalApiUrl}/api/chat/history/${id}`, {
           headers: finalApiToken
             ? { Authorization: `Bearer ${finalApiToken}` }
@@ -183,19 +179,15 @@ export const useChatMessages = ({
     [chatModelId, finalApiUrl, finalApiToken, getNewInstance]
   );
 
-  // Initialize chat instance
   useEffect(() => {
     const savedInstance = localStorage.getItem(
       `chatInstanceId[${chatModelId}]`
     );
     if (savedInstance && !chatInstanceId) {
-      // Only call selectConversation if chatInstanceId is empty
       selectConversation(savedInstance);
     } else if (!savedInstance && !chatInstanceId) {
-      // Only create new instance if no saved instance and no current instance
       getNewInstance();
     }
-    // Remove selectConversation from dependency array to prevent infinite loop
   }, [chatModelId, getNewInstance]);
 
   const debouncedTypingUsersUpdate = debounce((data: TypingUser) => {
@@ -213,7 +205,6 @@ export const useChatMessages = ({
   }, 500);
 
   const fetchMessagesFromApi = useCallback(async () => {
-    // Capture the current instance ID locally to ensure we're using the latest value
     const currentInstanceId = chatInstanceId;
 
     if (!currentInstanceId) {
@@ -237,16 +228,13 @@ export const useChatMessages = ({
 
       const data = await response.json();
 
-      // Check if we're still on the same conversation
       if (currentInstanceId !== chatInstanceId) {
         return;
       }
 
       const apiMessages = data.messages || [];
 
-      // Mettre à jour l'utilisateur avec les informations de l'API
       if (data.connectedOrAnonymousUser) {
-        // Vérifier si l'utilisateur a changé avant de mettre à jour
         if (user?.id !== data.connectedOrAnonymousUser.id) {
           setUser({
             ...user,
@@ -264,7 +252,7 @@ export const useChatMessages = ({
 
         const updatedMessages = apiMessages.map((message: any) => {
           const isUserMessage = message.userId === currentUserId;
-      
+
           return {
             id: message.id,
             text: message.text,
@@ -425,7 +413,6 @@ export const useChatMessages = ({
       },
     };
 
-    // Add message to state immediately
     addMessage(userMessage);
 
     try {
@@ -467,17 +454,14 @@ export const useChatMessages = ({
       const data = await response.json();
       const { message } = data;
 
-      // Always save to history after successful API call, regardless of message ID comparison
       const updatedMessages = [...state.messages, userMessage];
 
-      // Save to conversation history with current chatInstanceId
       saveConversationHistory(
         chatInstanceId,
         chatTitle || userMessage.text.slice(0, 50),
         updatedMessages
       );
 
-      // Update conversations list
       setConversations((prev) => {
         const existing = prev.findIndex((c) => c.id === chatInstanceId);
         const newConversation: ChatHistoryItem = {
@@ -522,7 +506,6 @@ export const useChatMessages = ({
 
   const updateChatTitle = useCallback(
     (newTitle: string, specificChatInstanceId?: string) => {
-      // Use the specified ID if provided, otherwise use current ID
       const targetInstanceId = specificChatInstanceId || chatInstanceId;
 
       if (!targetInstanceId) {
@@ -530,12 +513,10 @@ export const useChatMessages = ({
         return;
       }
 
-      // Only update current title if we're updating the active conversation
       if (targetInstanceId === chatInstanceId) {
         setChatTitle(newTitle);
       }
 
-      // Update conversations list with new title
       setConversations((prev) => {
         const updated = prev.map((conv) =>
           conv.id === targetInstanceId ? { ...conv, title: newTitle } : conv
@@ -547,26 +528,22 @@ export const useChatMessages = ({
         return updated;
       });
 
-      // Find the conversation to update in local storage
       const conversationToUpdate = conversations.find(
         (conv) => conv.id === targetInstanceId
       );
       if (conversationToUpdate) {
-        // Update conversation history with new title
         saveConversationHistory(
           targetInstanceId,
           newTitle,
-          conversationToUpdate.messages || [] // Use messages from the specific conversation
+          conversationToUpdate.messages || []
         );
       }
     },
     [chatInstanceId, chatModelId, conversations]
   );
 
-  // Fix pour le problème de fetch d'historique API lors de la création d'un nouveau chat
   const createNewChat = useCallback(async () => {
     try {
-      // Créer une nouvelle instance
       const newInstanceId = await getNewInstance();
 
       if (!newInstanceId) {
@@ -574,21 +551,17 @@ export const useChatMessages = ({
         return null;
       }
 
-      // Mise à jour explicite du chatInstanceId pour éviter les confusions
       setChatInstanceId(newInstanceId);
       localStorage.setItem(`chatInstanceId[${chatModelId}]`, newInstanceId);
 
-      // Réinitialisation immédiate des messages dans l'état
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: { chatInstanceId: newInstanceId, messages: [] },
       });
 
-      // Définir un titre par défaut
       const defaultTitle = "💬 Nouvelle conversation";
       setChatTitle(defaultTitle);
 
-      // Créer un objet conversation pour l'historique
       const newConversation: ChatHistoryItem = {
         id: newInstanceId,
         title: defaultTitle,
@@ -596,7 +569,6 @@ export const useChatMessages = ({
         lastUpdated: new Date().toISOString(),
       };
 
-      // Ajouter à la liste des conversations
       setConversations((prev) => {
         const updated = [newConversation, ...prev];
         localStorage.setItem(
@@ -606,10 +578,8 @@ export const useChatMessages = ({
         return updated;
       });
 
-      // Sauvegarder dans l'historique local avec tableau vide explicite
       saveConversationHistory(newInstanceId, defaultTitle, []);
 
-      // Petit délai pour s'assurer que les états sont mis à jour
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       return newInstanceId;

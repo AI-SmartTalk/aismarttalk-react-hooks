@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 /**
  * Represents a canvas with a title and content lines.
@@ -18,34 +18,29 @@ export interface Canvas {
 export default function useCanvasHistory(chatModelId: string) {
   const storageKey = `canvasHistory:${chatModelId}`;
 
-  // State to store the active canvas and its history.
-  const [canvas, setCanvas] = useState<Canvas>({ title: '', content: [] });
+  const [canvas, setCanvas] = useState<Canvas>({ title: "", content: [] });
   const [history, setHistory] = useState<Canvas[]>([]);
 
-  // Load canvas history from local storage on initialization.
   useEffect(() => {
     const storedHistory = localStorage.getItem(storageKey);
     if (storedHistory) {
       try {
         const parsedHistory: Canvas[] = JSON.parse(storedHistory);
         setHistory(parsedHistory);
-        // Set the first canvas from history as the active one.
         if (parsedHistory.length > 0) {
           setCanvas(parsedHistory[0]);
         }
       } catch (err) {
-        console.error('Error parsing stored canvas history:', err);
+        console.error("Error parsing stored canvas history:", err);
       }
     } else {
-      // No history found: initialize with a default canvas.
-      const defaultCanvas: Canvas = { title: 'Untitled', content: [''] };
+      const defaultCanvas: Canvas = { title: "Untitled", content: [""] };
       setCanvas(defaultCanvas);
       setHistory([defaultCanvas]);
       localStorage.setItem(storageKey, JSON.stringify([defaultCanvas]));
     }
   }, [chatModelId, storageKey]);
 
-  // Helper function to persist the history to local storage.
   const persistHistory = (newHistory: Canvas[]) => {
     localStorage.setItem(storageKey, JSON.stringify(newHistory));
   };
@@ -68,14 +63,18 @@ export default function useCanvasHistory(chatModelId: string) {
    * @param newLines - Array of new lines to insert
    * @throws {Error} If indices are out of bounds
    */
-  const updateLineRange = (start: number, end: number, newLines: string[]): void => {
+  const updateLineRange = (
+    start: number,
+    end: number,
+    newLines: string[]
+  ): void => {
     if (start < 0 || end < start) {
-      throw new Error('Invalid line range specified');
+      throw new Error("Invalid line range specified");
     }
 
-    setCanvas(prev => {
+    setCanvas((prev) => {
       if (end >= prev.content.length) {
-        throw new Error('Line range exceeds canvas content length');
+        throw new Error("Line range exceeds canvas content length");
       }
 
       const newContent = [...prev.content];
@@ -102,12 +101,12 @@ export default function useCanvasHistory(chatModelId: string) {
    */
   const insertAtLine = (lineIndex: number, text: string): void => {
     if (lineIndex < 0) {
-      throw new Error('Line index cannot be negative');
+      throw new Error("Line index cannot be negative");
     }
 
-    setCanvas(prev => {
+    setCanvas((prev) => {
       if (lineIndex > prev.content.length) {
-        throw new Error('Line index exceeds canvas content length');
+        throw new Error("Line index exceeds canvas content length");
       }
 
       const newContent = [...prev.content];
@@ -128,15 +127,17 @@ export default function useCanvasHistory(chatModelId: string) {
    */
   const deleteLineRange = (start: number, end: number): void => {
     if (start < 0 || end < start) {
-      throw new Error('Invalid line range specified');
+      throw new Error("Invalid line range specified");
     }
 
-    setCanvas(prev => {
+    setCanvas((prev) => {
       if (end >= prev.content.length) {
-        throw new Error('Line range exceeds canvas content length');
+        throw new Error("Line range exceeds canvas content length");
       }
 
-      const newContent = prev.content.filter((_, index) => index < start || index > end);
+      const newContent = prev.content.filter(
+        (_, index) => index < start || index > end
+      );
       const updatedCanvas = { ...prev, content: newContent };
       const newHistory = [updatedCanvas, ...history];
       setHistory(newHistory);
@@ -152,7 +153,7 @@ export default function useCanvasHistory(chatModelId: string) {
    */
   const switchActiveCanvas = (canvasIndex: number): void => {
     if (canvasIndex < 0 || canvasIndex >= history.length) {
-      throw new Error('Canvas index out of bounds');
+      throw new Error("Canvas index out of bounds");
     }
     setCanvas(history[canvasIndex]);
   };
@@ -162,7 +163,7 @@ export default function useCanvasHistory(chatModelId: string) {
    * @returns The canvas content as a single string
    */
   const toString = (): string => {
-    return canvas.content.join('\n\n');
+    return canvas.content.join("\n\n");
   };
 
   /**
@@ -171,10 +172,15 @@ export default function useCanvasHistory(chatModelId: string) {
    * @returns Array of strings with format "lineNumber: content"
    */
   const getNumberedLines = (startLine: number = 1): string[] => {
-    const maxLineNumberWidth = String(canvas.content.length + startLine - 1).length;
+    const maxLineNumberWidth = String(
+      canvas.content.length + startLine - 1
+    ).length;
     return canvas.content.map((line, index) => {
       const lineNumber = startLine + index;
-      const paddedLineNumber = String(lineNumber).padStart(maxLineNumberWidth, ' ');
+      const paddedLineNumber = String(lineNumber).padStart(
+        maxLineNumberWidth,
+        " "
+      );
       return `${paddedLineNumber}: ${line}`;
     });
   };

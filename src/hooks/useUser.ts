@@ -15,7 +15,7 @@ export interface User {
  * The initial anonymous user used when no valid user data exists.
  */
 export const initialUser: User = {
-  id: "anonymous", // Constant identifier for anonymous users
+  id: "anonymous",
   email: "anonymous@example.com",
   name: "Anonymous",
 };
@@ -30,11 +30,9 @@ export const initialUser: User = {
 function isTokenValid(user: User): boolean {
   if (!user.token) return false;
   try {
-    // Extract payload from JWT (assumes JWT format: header.payload.signature)
     const tokenParts = user.token.split(".");
     if (tokenParts.length !== 3) return false;
     const payload = JSON.parse(atob(tokenParts[1]));
-    // Compare expiration time (convert seconds to milliseconds)
     return payload.exp * 1000 > Date.now();
   } catch (error) {
     console.error("Token validation error:", error);
@@ -45,16 +43,15 @@ function isTokenValid(user: User): boolean {
 /**
  * Checks whether the provided user object is valid and authenticated.
  * A valid authenticated user must have a valid token.
- * 
+ *
  * @param user - The user object to validate.
  * @returns true if the user is valid and authenticated; otherwise, false.
  */
 function isValidAuthenticatedUser(user: User): boolean {
-  // If the user is the initialUser or doesn't have a token, they're not authenticated
   if (user.id === initialUser.id || !user.token) {
     return false;
   }
-  
+
   return isTokenValid(user);
 }
 
@@ -68,16 +65,16 @@ function isValidAuthenticatedUser(user: User): boolean {
 export default function useUser() {
   const [user, setUserState] = useState<User>(initialUser);
 
-  // Check if the user is valid and authenticated on each render
   useEffect(() => {
     if (user !== initialUser && !isValidAuthenticatedUser(user)) {
-      console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous");
+      console.warn(
+        "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
+      );
       localStorage.removeItem("user");
       setUserState(initialUser);
     }
   });
 
-  // Load user from localStorage when the component mounts.
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -97,7 +94,6 @@ export default function useUser() {
         setUserState(initialUser);
       }
     } else {
-      // Explicitly set to initialUser when no stored user exists
       setUserState(initialUser);
     }
   }, []);
@@ -112,7 +108,7 @@ export default function useUser() {
     if (storedUser) {
       try {
         const parsedUser: User = JSON.parse(storedUser);
-        
+
         if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
@@ -133,7 +129,6 @@ export default function useUser() {
    * @param newUser - The new user object to be set.
    */
   const setUser = (newUser: User) => {
-    // Ensure the user has a stable identifier; generate one from the email if missing.
     const userToStore: User = {
       ...newUser,
       id: newUser.id || `user-${newUser.email.split("@")[0]}`,

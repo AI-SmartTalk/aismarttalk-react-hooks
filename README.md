@@ -150,6 +150,11 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.2.3 Enhanced History Management for Uninitialized States
+- 🔄 Improved handling of chat history when it has not been initialized yet, ensuring a smoother user experience.
+- ✅ Added checks to prevent errors when accessing uninitialized history, providing fallback mechanisms.
+- 📈 Optimized performance for loading and displaying chat history
+
 ### 1.2.2 - Fix User Token expiration
 - 🐛 Fixed user token expiration validation causing incorrect message attribution
 - 🔄 Added proper token expiry checks to prevent wrong user identification
