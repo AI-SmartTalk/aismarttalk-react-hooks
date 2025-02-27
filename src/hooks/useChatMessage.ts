@@ -70,6 +70,7 @@ export const useChatMessages = ({
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
+  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const {chatInstanceId, setChatInstanceId, getNewInstance, } = useChatInstance({chatModelId, lang, config, isAdmin:isAdmin})
@@ -93,7 +94,7 @@ export const useChatMessages = ({
         }
 
         setChatInstanceId(id);
-        localStorage.setItem(`chatInstanceId[${chatModelId}]`, id);
+        localStorage.setItem(storageKey, id);
 
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
@@ -139,19 +140,21 @@ export const useChatMessages = ({
         setError(error instanceof Error ? error.message : "Unknown error");
       }
     },
-    [chatModelId, finalApiUrl, finalApiToken]
+    [chatModelId, finalApiUrl, finalApiToken, storageKey]
   );
 
   useEffect(() => {
-    const savedInstance = localStorage.getItem(
-      `chatInstanceId[${chatModelId}]`
-    );
-    if (savedInstance && !chatInstanceId) {
+    if (chatInstanceId) return;
+    
+    if (isAdmin) return;
+
+    const savedInstance = localStorage.getItem(storageKey);
+    if (savedInstance) {
       selectConversation(savedInstance);
-    } else if (!savedInstance && !chatInstanceId) {
+    } else {
       getNewInstance();
     }
-  }, [chatModelId, getNewInstance]);
+  }, []);
 
   const debouncedTypingUsersUpdate = debounce((data: TypingUser) => {
     setTypingUsers((prev) => {
@@ -521,7 +524,7 @@ export const useChatMessages = ({
       }
 
       setChatInstanceId(newInstanceId);
-      localStorage.setItem(`chatInstanceId[${chatModelId}]`, newInstanceId);
+      localStorage.setItem(storageKey, newInstanceId);
 
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
@@ -557,7 +560,7 @@ export const useChatMessages = ({
       setError(error instanceof Error ? error.message : "Unknown error");
       return null;
     }
-  }, [chatModelId, dispatch]);
+  }, [chatModelId, dispatch, storageKey]);
 
   useEffect(() => {
     if (state.messages.length > 0) {

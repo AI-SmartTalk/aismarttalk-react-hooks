@@ -42,8 +42,12 @@ export const useChatInstance = ({
 }: UseChatInstanceProps) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
+  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
 
-  const [chatInstanceId, setChatInstanceId] = useState<string>('');
+  const [chatInstanceId, setChatInstanceId] = useState<string>(() => {
+    const saved = localStorage.getItem(storageKey);
+    return saved || '';
+  });
   const [error, setError] = useState<Error | null>(null);
 
   /**
@@ -62,51 +66,31 @@ export const useChatInstance = ({
         headers["Authorization"] = `Bearer ${user.token}`;
       }
 
-      const url =  isAdmin ?  `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` : `${finalApiUrl}/api/chat/createInstance`;    
+      const url = isAdmin ? 
+        `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` : 
+        `${finalApiUrl}/api/chat/createInstance`;    
+
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ chatModelId, lang: lang }),
+        body: JSON.stringify({ chatModelId, lang }),
       });
 
-      if (!response.status || response.status < 200 || response.status >= 300) {
+      if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to create chat instance: ${response.status} - ${errorText}`
-        );
+        throw new Error(`Failed to create chat instance: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-
       const instanceId = isAdmin ? data.instanceId : data.chatInstanceId;
 
-      try {
-        localStorage.setItem(
-          `chatInstanceId[${chatModelId}]`,
-          instanceId
-        );
-      } catch (storageError) {
-        console.error("Error saving to localStorage:", {
-          error:
-            storageError instanceof Error
-              ? storageError.message
-              : "Unknown storage error",
-        });
-      }
-
+      localStorage.setItem(storageKey, instanceId);
       setChatInstanceId(instanceId);
       setError(null);
       return instanceId;
     } catch (err) {
-      const errorDetails = {
-        message: err instanceof Error ? err.message : "Unknown error",
-        stack: err instanceof Error ? err.stack : undefined,
-        type: err instanceof Error ? err.constructor.name : typeof err,
-      };
-      console.error("Error in getNewInstance:", errorDetails);
-      setError(
-        err instanceof Error ? err : new Error("Failed to create chat instance")
-      );
+      console.error("Error in initializeChatInstance:", err);
+      setError(err instanceof Error ? err : new Error("Failed to create chat instance"));
       throw err;
     }
   };
@@ -116,7 +100,7 @@ export const useChatInstance = ({
     // Skip initialization for admin mode unless chatInstanceId is empty
     if (isAdmin && chatInstanceId) return;
     
-    const savedInstance = localStorage.getItem(`chatInstanceId[${chatModelId}]`);
+    const savedInstance = localStorage.getItem(storageKey);
     if (savedInstance && savedInstance.length > 0) {
       setChatInstanceId(savedInstance);
     } else if (!chatInstanceId) {

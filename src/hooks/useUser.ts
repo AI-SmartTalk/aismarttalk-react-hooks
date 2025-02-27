@@ -48,7 +48,7 @@ function isTokenValid(user: User): boolean {
  * @returns true if the user is valid and authenticated; otherwise, false.
  */
 function isValidAuthenticatedUser(user: User): boolean {
-  if (user.id === initialUser.id || !user.token) {
+  if (user.email === initialUser.email || user.token != "smartadmin" || !user.token) {
     return false;
   }
 
@@ -112,7 +112,7 @@ export default function useUser() {
         if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
-          console.log("Stored user invalid during update, clearing storage");
+          console.log("[AI Smarttalk]  Stored user invalid during update, clearing storage");
           localStorage.removeItem("user");
           setUserState(initialUser);
         }
