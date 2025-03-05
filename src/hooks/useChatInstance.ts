@@ -54,7 +54,7 @@ export const useChatInstance = ({
    * Initializes the chat instance by either retrieving an existing instance from localStorage
    * or creating a new one if none exists
    */
-  const initializeChatInstance = async () => {
+  const initializeChatInstance = async (lang: string) => {
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -104,9 +104,9 @@ export const useChatInstance = ({
     if (savedInstance && savedInstance.length > 0) {
       setChatInstanceId(savedInstance);
     } else if (!chatInstanceId) {
-      initializeChatInstance();
+      initializeChatInstance(lang);
     }
-  }, [chatModelId]); // Only depend on chatModelId changes
+  }, [chatModelId, lang]); // Only depend on chatModelId changes
 
   return {
     chatInstanceId,

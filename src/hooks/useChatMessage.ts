@@ -89,7 +89,7 @@ export const useChatMessages = ({
     async (id: string | undefined) => {
       try {
         if (!id) {
-          await getNewInstance();
+          await getNewInstance(lang);
           return;
         }
 
@@ -152,7 +152,7 @@ export const useChatMessages = ({
     if (savedInstance) {
       selectConversation(savedInstance);
     } else {
-      getNewInstance();
+      getNewInstance(lang);
     }
   }, []);
 
@@ -516,7 +516,7 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
-      const newInstanceId = await getNewInstance();
+      const newInstanceId = await getNewInstance(lang);
 
       if (!newInstanceId) {
         console.error("Failed to create new chat instance");
