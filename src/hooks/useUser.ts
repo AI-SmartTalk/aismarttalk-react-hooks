@@ -91,8 +91,12 @@ export default function useUser(initialUserOverride?: User) {
           if (isValidAuthenticatedUser(parsedUser)) {
             return parsedUser;
           }
+          // Clean up invalid user data
+          localStorage.removeItem("user");
         } catch (error) {
           console.warn("[AI Smarttalk] Failed to parse stored user");
+          // Clean up corrupted user data
+          localStorage.removeItem("user");
         }
       }
     }

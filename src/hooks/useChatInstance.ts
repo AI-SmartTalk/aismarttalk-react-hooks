@@ -56,7 +56,11 @@ export const useChatInstance = ({
 
   const cleanup = useCallback(() => {
     setChatInstanceId('');
-    localStorage.removeItem(storageKey);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (err) {
+      console.error('Error cleaning up localStorage:', err);
+    }
     setIsChanging(true);
     // Give time for consumers to cleanup their sockets
     return new Promise(resolve => setTimeout(resolve, 100));
@@ -99,7 +103,12 @@ export const useChatInstance = ({
       const data = await response.json();
       const instanceId = data.chatInstanceId;
 
-      localStorage.setItem(storageKey, instanceId);
+      try {
+        localStorage.setItem(storageKey, instanceId);
+      } catch (err) {
+        console.error('Error saving to localStorage:', err);
+      }
+
       setChatInstanceId(instanceId);
       setIsChanging(false);
       setError(null);
@@ -116,7 +125,12 @@ export const useChatInstance = ({
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
-      const savedInstance = localStorage.getItem(storageKey);
+      let savedInstance = null;
+      try {
+        savedInstance = localStorage.getItem(storageKey);
+      } catch (err) {
+        console.error('Error reading from localStorage:', err);
+      }
       
       if (savedInstance && savedInstance.length > 0) {
         if (isMounted) {
@@ -125,9 +139,15 @@ export const useChatInstance = ({
         }
       } else if (!chatInstanceId && isMounted) {
         try {
-          await initializeChatInstance();
+          const newInstanceId = await initializeChatInstance();
+          if (isMounted) {
+            setChatInstanceId(newInstanceId);
+          }
         } catch (error) {
           console.error('Failed to initialize instance:', error);
+          if (isMounted) {
+            setError(error instanceof Error ? error : new Error('Failed to initialize instance'));
+          }
         }
       }
     };
