@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { defaultApiUrl } from "../types/config";
 
 /**
@@ -20,6 +20,12 @@ interface UseChatInstanceProps {
   user?: {
     /** User's authentication token */
     token?: string;
+    /** User's ID */
+    id?: string;
+    /** User's email */
+    email?: string;
+    /** User's name */
+    name?: string;
   };
   isAdmin?: boolean;
 }
@@ -42,20 +48,28 @@ export const useChatInstance = ({
 }: UseChatInstanceProps) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
-  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
+  const storageKey = `chatInstanceId[${chatModelId}]${isAdmin ? '-smartadmin': ''}`;
 
-  const [chatInstanceId, setChatInstanceId] = useState<string>(() => {
-    const saved = localStorage.getItem(storageKey);
-    return saved || '';
-  });
+  const [chatInstanceId, setChatInstanceId] = useState<string>('');
   const [error, setError] = useState<Error | null>(null);
+  const [isChanging, setIsChanging] = useState<boolean>(false);
 
-  /**
-   * Initializes the chat instance by either retrieving an existing instance from localStorage
-   * or creating a new one if none exists
-   */
-  const initializeChatInstance = async (lang: string) => {
+  const cleanup = useCallback(() => {
+    setChatInstanceId('');
     try {
+      localStorage.removeItem(storageKey);
+    } catch (err) {
+      console.error('Error cleaning up localStorage:', err);
+    }
+    setIsChanging(true);
+    // Give time for consumers to cleanup their sockets
+    return new Promise(resolve => setTimeout(resolve, 100));
+  }, [storageKey]);
+
+  const initializeChatInstance = async () => {
+    try {
+      await cleanup();
+      
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
@@ -73,7 +87,12 @@ export const useChatInstance = ({
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ chatModelId, lang }),
+        body: JSON.stringify({ 
+          chatModelId, 
+          lang,
+          userEmail: user?.email || 'anonymous@example.com',
+          userName: user?.name || 'Anonymous'
+        }),
       });
 
       if (!response.ok) {
@@ -82,37 +101,71 @@ export const useChatInstance = ({
       }
 
       const data = await response.json();
-      const instanceId = isAdmin ? data.instanceId : data.chatInstanceId;
+      const instanceId = data.chatInstanceId;
 
-      localStorage.setItem(storageKey, instanceId);
+      try {
+        localStorage.setItem(storageKey, instanceId);
+      } catch (err) {
+        console.error('Error saving to localStorage:', err);
+      }
+
       setChatInstanceId(instanceId);
+      setIsChanging(false);
       setError(null);
       return instanceId;
     } catch (err) {
       console.error("Error in initializeChatInstance:", err);
       setError(err instanceof Error ? err : new Error("Failed to create chat instance"));
+      setIsChanging(false);
       throw err;
     }
   };
-  
 
   useEffect(() => {
-    // Skip initialization for admin mode unless chatInstanceId is empty
-    if (isAdmin && chatInstanceId) return;
-    
-    const savedInstance = localStorage.getItem(storageKey);
-    if (savedInstance && savedInstance.length > 0) {
-      setChatInstanceId(savedInstance);
-    } else if (!chatInstanceId) {
-      initializeChatInstance(lang);
-    }
-  }, [chatModelId, lang]); // Only depend on chatModelId changes
+    let isMounted = true;
+
+    const initializeOrSwitchInstance = async () => {
+      let savedInstance = null;
+      try {
+        savedInstance = localStorage.getItem(storageKey);
+      } catch (err) {
+        console.error('Error reading from localStorage:', err);
+      }
+      
+      if (savedInstance && savedInstance.length > 0) {
+        if (isMounted) {
+          setChatInstanceId(savedInstance);
+          setIsChanging(false);
+        }
+      } else if (!chatInstanceId && isMounted) {
+        try {
+          const newInstanceId = await initializeChatInstance();
+          if (isMounted) {
+            setChatInstanceId(newInstanceId);
+          }
+        } catch (error) {
+          console.error('Failed to initialize instance:', error);
+          if (isMounted) {
+            setError(error instanceof Error ? error : new Error('Failed to initialize instance'));
+          }
+        }
+      }
+    };
+
+    initializeOrSwitchInstance();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAdmin, chatModelId]); 
 
   return {
     chatInstanceId,
     getNewInstance: initializeChatInstance,
     setChatInstanceId,
     error,
+    isChanging,
+    cleanup
   };
 };
 

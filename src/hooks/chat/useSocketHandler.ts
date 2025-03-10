@@ -34,13 +34,47 @@ export const useSocketHandler = (
   canvasHistory: ReturnType<typeof useCanvasHistory>
 ): any => {
   const socketRef = useRef<any>(null);
+  const currentInstanceRef = useRef<string>(chatInstanceId);
 
   const stableFetchMessages = useCallback(fetchMessagesFromApi, []);
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
+  // Force socket cleanup when instance changes
   useEffect(() => {
-    if (!chatInstanceId || !chatModelId || !finalApiUrl) return;
+    if (currentInstanceRef.current !== chatInstanceId) {
+      if (socketRef.current) {
+        console.log('Forcing socket cleanup due to instance change', { 
+          old: currentInstanceRef.current, 
+          new: chatInstanceId 
+        });
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      currentInstanceRef.current = chatInstanceId;
+    }
+  }, [chatInstanceId]);
 
+  useEffect(() => {
+    if (!chatInstanceId || !chatModelId || !finalApiUrl) {
+      if (socketRef.current) {
+        console.log('Cleaning up socket - missing dependencies');
+        socketRef.current.removeAllListeners();
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      return;
+    }
+
+    // Always cleanup previous socket if it exists
+    if (socketRef.current) {
+      console.log('Cleaning up previous socket connection');
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    console.log('Creating new socket connection for instance:', chatInstanceId);
     const socket = socketIOClient(finalWsUrl, {
       query: {
         chatInstanceId,
@@ -48,6 +82,8 @@ export const useSocketHandler = (
         userEmail: user.email || "anonymous@example.com",
         userName: user.name || "Anonymous",
       },
+      forceNew: true,
+      reconnection: false // Disable auto-reconnection
     });
 
     socketRef.current = socket;
@@ -63,21 +99,21 @@ export const useSocketHandler = (
     });
 
     socket.on("connect", () => {
+      console.log('Socket connected, joining chat:', chatInstanceId);
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
       stableFetchMessages();
     });
 
     socket.on("disconnect", (reason) => {
+      console.log('Socket disconnected:', reason);
       setSocketStatus("disconnected");
     });
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        const isOwnMessage =
-          user && user.email && data.message.user && data.message.user.email
-            ? user.email === data.message.user.email
-            : user.id === data.message.user?.id;
+        const isOwnMessage = data.message.user?.id === user.id ||
+          (user.email && data.message.user?.email === user.email);
 
         if (!isOwnMessage) {
           dispatch({
@@ -88,6 +124,7 @@ export const useSocketHandler = (
                 isSent: false,
               },
               chatInstanceId,
+              userId: user.id,
               userEmail: user.email,
             },
           });
@@ -156,9 +193,14 @@ export const useSocketHandler = (
     });
 
     return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
+      console.log('Cleaning up socket in useEffect cleanup');
+      if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+      }
+      socketRef.current = null;
     };
   }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]);
-  return socketRef.current;
+
+  return socketRef;
 };
