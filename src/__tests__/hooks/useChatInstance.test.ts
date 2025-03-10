@@ -119,7 +119,7 @@ describe('useChatInstance', () => {
     
     // Call getNewInstance
     await act(async () => {
-      await result.current.getNewInstance('fr');
+      await result.current.getNewInstance();
     });
     
     // Verify state was updated

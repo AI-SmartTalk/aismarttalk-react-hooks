@@ -28,14 +28,29 @@ export const initialUser: User = {
  * @returns true if the token is valid; otherwise, false.
  */
 function isTokenValid(user: User): boolean {
-  if (!user.token) return false;
+  console.log('[AI Smarttalk Debug] Validating token for user:', { email: user.email, hasToken: !!user.token });
+  if (!user.token) {
+    console.log('[AI Smarttalk Debug] Token validation failed: No token present');
+    return false;
+  }
   try {
     const tokenParts = user.token.split(".");
-    if (tokenParts.length !== 3) return false;
+    console.log('[AI Smarttalk Debug] Token parts length:', tokenParts.length);
+    if (tokenParts.length !== 3) {
+      console.log('[AI Smarttalk Debug] Token validation failed: Invalid token format');
+      return false;
+    }
     const payload = JSON.parse(atob(tokenParts[1]));
-    return payload.exp * 1000 > Date.now();
+    console.log('[AI Smarttalk Debug] Token payload:', payload);
+    const isValid = payload.exp * 1000 > Date.now();
+    console.log('[AI Smarttalk Debug] Token expiration check:', {
+      expTime: new Date(payload.exp * 1000).toISOString(),
+      currentTime: new Date().toISOString(),
+      isValid
+    });
+    return isValid;
   } catch (error) {
-    console.error("Token validation error:", error);
+    console.error("[AI Smarttalk Debug] Token validation error:", error);
     return false;
   }
 }
@@ -48,11 +63,26 @@ function isTokenValid(user: User): boolean {
  * @returns true if the user is valid and authenticated; otherwise, false.
  */
 function isValidAuthenticatedUser(user: User): boolean {
-  if (user.email === initialUser.email || user.token != "smartadmin" || !user.token) {
+  console.log('[AI Smarttalk Debug] Validating user:', {
+    email: user.email,
+    isAnonymous: user.email === initialUser.email,
+    hasToken: !!user.token,
+    token: user.token
+  });
+
+  if (user.email === initialUser.email) {
+    console.log('[AI Smarttalk Debug] User validation failed: Anonymous email');
     return false;
   }
 
-  return isTokenValid(user);
+  if (user.token !== "smartadmin") {
+    console.log('[AI Smarttalk Debug] User validation failed: Token does not match "smartadmin"');
+    return false;
+  }
+
+  const tokenValidation = isTokenValid(user);
+  console.log('[AI Smarttalk Debug] Final token validation result:', tokenValidation);
+  return tokenValidation;
 }
 
 /**
@@ -91,7 +121,7 @@ export default function useUser(initialUserOverride?: User) {
   useEffect(() => {
     if (initialUserOverride) return; // Skip validation for override users
 
-    if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
+    if (user !== initialUser && !isValidAuthenticatedUser(user)) {
       console.warn(
         "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
       );
