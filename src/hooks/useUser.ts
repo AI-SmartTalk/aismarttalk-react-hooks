@@ -28,14 +28,18 @@ export const initialUser: User = {
  * @returns true if the token is valid; otherwise, false.
  */
 function isTokenValid(user: User): boolean {
-  if (!user.token) return false;
+  if (!user.token) {
+    return false;
+  }
   try {
     const tokenParts = user.token.split(".");
-    if (tokenParts.length !== 3) return false;
+    if (tokenParts.length !== 3) {
+      return false;
+    }
     const payload = JSON.parse(atob(tokenParts[1]));
     return payload.exp * 1000 > Date.now();
   } catch (error) {
-    console.error("Token validation error:", error);
+    console.error("[AI Smarttalk] Token validation error");
     return false;
   }
 }
@@ -48,11 +52,20 @@ function isTokenValid(user: User): boolean {
  * @returns true if the user is valid and authenticated; otherwise, false.
  */
 function isValidAuthenticatedUser(user: User): boolean {
-  if (user.email === initialUser.email || user.token != "smartadmin" || !user.token) {
+  if (user.email === initialUser.email) {
     return false;
   }
 
-  return isTokenValid(user);
+  const tokenValidation = isTokenValid(user);
+  if (tokenValidation) {
+    return true;
+  }
+
+  if (user.token === "smartadmin") {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -91,10 +104,8 @@ export default function useUser(initialUserOverride?: User) {
   useEffect(() => {
     if (initialUserOverride) return; // Skip validation for override users
 
-    if (user !== initialUser && !isValidAuthenticatedUser(user) && user.token !== "smartadmin") {
-      console.warn(
-        "[AI Smarttalk] User token invalid or missing, reverting to anonymous"
-      );
+    if (user !== initialUser && !isValidAuthenticatedUser(user)) {
+      console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous");
       localStorage.removeItem("user");
       setUserState(initialUser);
     }
