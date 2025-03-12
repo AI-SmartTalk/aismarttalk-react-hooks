@@ -116,16 +116,23 @@ export const useSocketHandler = (
           (user.email && data.message.user?.email === user.email);
 
         if (!isOwnMessage) {
+          // Make sure the message user object is complete
+          const messageUser = data.message.user || {};
+          
           dispatch({
             type: ChatActionTypes.ADD_MESSAGE,
             payload: {
               message: {
                 ...data.message,
+                user: {
+                  id: messageUser.id || '',
+                  email: messageUser.email || '',
+                  name: messageUser.name || '',
+                  image: messageUser.image || '',  
+                },
                 isSent: false,
               },
               chatInstanceId,
-              userId: user.id,
-              userEmail: user.email,
             },
           });
         }

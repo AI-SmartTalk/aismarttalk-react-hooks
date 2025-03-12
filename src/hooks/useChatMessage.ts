@@ -125,7 +125,12 @@ export const useChatMessages = ({
               chatInstanceId: id,
               created_at: message.created_at,
               updated_at: message.updated_at,
-              user: message.user,
+              user: {
+                id: message.user?.id || message.userId || '',
+                email: message.user?.email || '',
+                name: message.user?.name || '',
+                image: message.user?.image || '',
+              },
               isSent: Boolean(isUserMessage),
             };
           });
@@ -235,7 +240,12 @@ export const useChatMessages = ({
             chatInstanceId: currentInstanceId,
             created_at: message.created_at,
             updated_at: message.updated_at,
-            user: message.user,
+            user: {
+              id: message.user?.id || message.userId || '',
+              email: message.user?.email || '',
+              name: message.user?.name || '',
+              image: message.user?.image || '',
+            },
             isSent: Boolean(isUserMessage),
           };
         });
