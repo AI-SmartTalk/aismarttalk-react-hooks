@@ -287,16 +287,31 @@ export const useChatMessages = ({
     if (!chatInstanceId) return;
 
     const history = loadConversationHistory(chatInstanceId);
-    if (history) {
+    if (history && Array.isArray(history.messages) && history.messages.length > 0) {
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
           chatInstanceId,
           messages: history.messages,
-          title: history.title,
+          title: history.title || '',
         },
       });
-      setChatTitle(history.title);
+      setChatTitle(history.title || '');
+      
+      // Update conversations to ensure the history is reflected
+      setConversations((prev) => {
+        const existing = prev.findIndex((c) => c.id === chatInstanceId);
+        if (existing === -1) {
+          const newConversation = {
+            id: chatInstanceId,
+            title: history.title || '',
+            messages: history.messages,
+            lastUpdated: new Date().toISOString(),
+          };
+          return [newConversation, ...prev];
+        }
+        return prev;
+      });
     } else {
       fetchMessagesFromApi();
     }

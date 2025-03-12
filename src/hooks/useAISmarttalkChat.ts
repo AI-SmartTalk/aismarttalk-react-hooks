@@ -108,22 +108,23 @@ export const useAISmarttalkChat = ({
   // Add new function to handle both chat instance and message selection
   const handleConversationSelect = useCallback(async (id: string) => {
     try {
-      // First update the chat instance ID in localStorage
-      localStorage.setItem(`chatInstanceId[${chatModelId}]`, id);
-      
-      // Then update the chat instance ID in state
-      selectConversation(id);
-      
-      // Wait for state update to complete
-      await new Promise(resolve => setTimeout(resolve, 0));
-      
-      // Then select the conversation
-      await selectConversation(id);  // Pass the new ID twice since we're switching to it
-      
+      // First select the conversation which will handle both instance and message selection
+      await selectConversation(id);
     } catch (error) {
       console.error('Error selecting conversation:', error);
+      setError(error instanceof Error ? error : new Error('Failed to select conversation'));
     }
-  }, [selectConversation, chatModelId]);
+  }, [selectConversation]);
+
+  // Add effect to handle initial conversation restoration
+  useEffect(() => {
+    if (!chatInstanceId) return;
+    
+    const conversation = conversations.find(conv => conv.id === chatInstanceId);
+    if (conversation) {
+      selectConversation(chatInstanceId);
+    }
+  }, [chatInstanceId, conversations, selectConversation]);
 
   return {
     // Chat instance related

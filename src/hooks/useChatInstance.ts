@@ -48,7 +48,7 @@ export const useChatInstance = ({
 }: UseChatInstanceProps) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
-  const storageKey = `chatInstanceId[${chatModelId}]${isAdmin ? '-smartadmin': ''}`;
+  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
 
   const [chatInstanceId, setChatInstanceId] = useState<string>('');
   const [error, setError] = useState<Error | null>(null);
@@ -125,6 +125,8 @@ export const useChatInstance = ({
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
+      if (isChanging) return;
+
       let savedInstance = null;
       try {
         savedInstance = localStorage.getItem(storageKey);
@@ -157,7 +159,7 @@ export const useChatInstance = ({
     return () => {
       isMounted = false;
     };
-  }, [isAdmin, chatModelId]); 
+  }, [isAdmin, chatModelId, storageKey, isChanging, chatInstanceId]); 
 
   return {
     chatInstanceId,

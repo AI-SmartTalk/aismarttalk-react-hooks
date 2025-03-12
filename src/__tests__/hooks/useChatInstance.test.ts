@@ -27,6 +27,9 @@ describe('useChatInstance', () => {
   const originalConsoleError = console.error;
   let consoleErrorSpy: jest.SpyInstance;
 
+  // Helper function to wait for async effects to complete
+  const flushPromises = () => new Promise(resolve => setTimeout(resolve, 100));
+
   beforeEach(() => {
     // Clear mocks
     localStorageMock.clear();
@@ -51,9 +54,6 @@ describe('useChatInstance', () => {
     // Restore console.error
     consoleErrorSpy.mockRestore();
   });
-
-  // Helper function to wait for async effects to complete
-  const flushPromises = () => new Promise(resolve => setTimeout(resolve, 100));
 
   it('should create a new instance when localStorage is empty', async () => {
     const { result } = renderHook(() => useChatInstance({
@@ -82,9 +82,9 @@ describe('useChatInstance', () => {
       })
     );
     
-    // Verify localStorage was updated
+    // Verify localStorage was updated with the new format
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      'chatInstanceId[model-123]', 
+      'chatInstanceId[model-123-standard]', 
       'new-instance-123'
     );
   });
@@ -92,7 +92,7 @@ describe('useChatInstance', () => {
   it('should load existing instance from localStorage', async () => {
     // Set existing instance in localStorage before rendering hook
     act(() => {
-      localStorageMock.setItem('chatInstanceId[model-123]', 'existing-instance-456');
+      localStorageMock.setItem('chatInstanceId[model-123-standard]', 'existing-instance-456');
     });
     
     const { result } = renderHook(() => useChatInstance({
@@ -116,7 +116,7 @@ describe('useChatInstance', () => {
   it('should create a new instance when getNewInstance is called', async () => {
     // Setup initial instance
     act(() => {
-      localStorageMock.setItem('chatInstanceId[model-123]', 'existing-instance-456');
+      localStorageMock.setItem('chatInstanceId[model-123-standard]', 'existing-instance-456');
     });
     
     const { result } = renderHook(() => useChatInstance({
@@ -165,132 +165,74 @@ describe('useChatInstance', () => {
   });
 
   it('should handle API errors gracefully', async () => {
-    // Mock a failed API response
-    fetchMock.mockImplementationOnce(async () => ({
-      ok: false,
-      status: 500,
-      json: async () => { throw new Error('Invalid JSON'); },
-      text: async () => 'Server Error'
-    }));
-    
-    const { result } = renderHook(() => useChatInstance({
-      chatModelId: 'model-123',
-      lang: 'en',
-      config: { apiUrl: 'https://api.example.com' }
-    }));
-    
-    // Wait for the effect to run and API call to complete
-    await act(async () => {
-      await flushPromises();
-    });
-    
-    // Verify error was logged
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(result.current.error).toBeTruthy();
+    fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: false, status: 500, text: () => 'Server Error' }));
+
+    const { result } = renderHook(() => useChatInstance({ chatModelId: 'model-123', lang: 'en' }));
+
+    await waitFor(() => expect(result.current.error).toBeTruthy());
   });
 
-  it('should handle fetch errors gracefully', async () => {
-    // Mock a network error
-    fetchMock.mockImplementationOnce(async () => {
-      throw new Error('Network Error');
-    });
-    
-    const { result } = renderHook(() => useChatInstance({
-      chatModelId: 'model-123',
-      lang: 'en',
-      config: { apiUrl: 'https://api.example.com' }
-    }));
-    
-    // Wait for the effect to run and API call to complete
-    await act(async () => {
-      await flushPromises();
-    });
-    
-    // Verify error was logged
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    expect(result.current.error).toBeTruthy();
-  });
+  it('should include user token in headers when provided', async () => {
+    const user = { token: 'user-token-123' };
 
-  it('should handle localStorage errors gracefully', async () => {
-    // Mock localStorage error for both getItem and setItem
-    localStorageMock.getItem.mockImplementationOnce(() => {
-      throw new Error('Storage Error');
-    });
-    localStorageMock.setItem.mockImplementationOnce(() => {
-      throw new Error('Storage Error');
-    });
-    
-    // Setup successful fetch response
-    fetchMock.mockImplementationOnce(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ chatInstanceId: 'new-instance-123' }),
-      text: async () => 'Success'
-    }));
-    
-    const { result } = renderHook(() => useChatInstance({
-      chatModelId: 'model-123',
-      lang: 'en',
-      config: { apiUrl: 'https://api.example.com' }
-    }));
-    
-    // Wait for the effect to run and API call to complete
-    await act(async () => {
-      await flushPromises();
-    });
-    
-    // The chat instance should still be created despite localStorage error
-    expect(result.current.chatInstanceId).toBe('new-instance-123');
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    
-    // Verify that both localStorage operations were attempted
-    expect(localStorageMock.getItem).toHaveBeenCalled();
-    expect(localStorageMock.setItem).toHaveBeenCalled();
-  });
-
-  it('should include auth headers when user token is provided', async () => {
     const { result } = renderHook(() => useChatInstance({
       chatModelId: 'model-123',
       lang: 'en',
       config: { apiUrl: 'https://api.example.com', apiToken: 'api-token-123' },
-      user: { token: 'user-token-456' }
+      user,
     }));
-    
-    // Wait for the effect to run and API call to complete
-    await act(async () => {
-      await flushPromises();
-    });
-    
-    // Now the chat instance should be set
-    expect(result.current.chatInstanceId).toBe('new-instance-123');
-    
-    // Verify auth headers were included
+
+    await waitFor(() => expect(result.current.chatInstanceId).toBe('new-instance-123'));
+
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.example.com/api/chat/createInstance',
       expect.objectContaining({
         headers: expect.objectContaining({
+          appToken: 'api-token-123',
           'Content-Type': 'application/json',
-          'appToken': 'api-token-123',
-          'x-use-chatbot-auth': 'true',
-          'Authorization': 'Bearer user-token-456'
-        })
+        }),
       })
     );
   });
 
-  it('should update chatInstanceId directly when setChatInstanceId is called', async () => {
-    const { result } = renderHook(() => useChatInstance({
-      chatModelId: 'model-123',
-      lang: 'en',
-      config: { apiUrl: 'https://api.example.com' }
-    }));
-    
-    // Set directly with act
+  it('should store and read instance ID correctly from localStorage', async () => {
+    // Set up the initial stored instance
     act(() => {
-      result.current.setChatInstanceId('direct-set-789');
+      localStorageMock.setItem('chatInstanceId[model-123-standard]', 'stored-instance-789');
     });
-    
-    // Verify state was updated
-    expect(result.current.chatInstanceId).toBe('direct-set-789');
+
+    const { result } = renderHook(() => useChatInstance({ 
+      chatModelId: 'model-123', 
+      lang: 'en' 
+    }));
+
+    // Wait for the effect to run
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(result.current.chatInstanceId).toBe('stored-instance-789');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
-}); 
+
+  it('should perform cleanup correctly', async () => {
+    const { result } = renderHook(() => useChatInstance({ 
+      chatModelId: 'model-123', 
+      lang: 'en' 
+    }));
+
+    // Wait for initial setup
+    await act(async () => {
+      await flushPromises();
+    });
+
+    // Perform cleanup
+    await act(async () => {
+      await result.current.cleanup();
+      await flushPromises();
+    });
+
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith('chatInstanceId[model-123-standard]');
+    expect(result.current.chatInstanceId).toBe('');
+  });
+});

@@ -43,7 +43,7 @@ export const useSocketHandler = (
   useEffect(() => {
     if (currentInstanceRef.current !== chatInstanceId) {
       if (socketRef.current) {
-        console.log('Forcing socket cleanup due to instance change', { 
+        console.log('[AI Smarttalk] Forcing socket cleanup due to instance change', { 
           old: currentInstanceRef.current, 
           new: chatInstanceId 
         });
@@ -58,7 +58,7 @@ export const useSocketHandler = (
   useEffect(() => {
     if (!chatInstanceId || !chatModelId || !finalApiUrl) {
       if (socketRef.current) {
-        console.log('Cleaning up socket - missing dependencies');
+        console.log('[AI Smarttalk] Cleaning up socket - missing dependencies');
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -68,13 +68,13 @@ export const useSocketHandler = (
 
     // Always cleanup previous socket if it exists
     if (socketRef.current) {
-      console.log('Cleaning up previous socket connection');
+      console.log('[AI Smarttalk] Cleaning up previous socket connection');
       socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
 
-    console.log('Creating new socket connection for instance:', chatInstanceId);
+    console.log('[AI Smarttalk] Creating new socket connection for instance:', chatInstanceId);
     const socket = socketIOClient(finalWsUrl, {
       query: {
         chatInstanceId,
@@ -99,14 +99,14 @@ export const useSocketHandler = (
     });
 
     socket.on("connect", () => {
-      console.log('Socket connected, joining chat:', chatInstanceId);
+      console.log('[AI Smarttalk] Socket connected, joining chat:', chatInstanceId);
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
       stableFetchMessages();
     });
 
     socket.on("disconnect", (reason) => {
-      console.log('Socket disconnected:', reason);
+      console.log('[AI Smarttalk] Socket disconnected:', reason);
       setSocketStatus("disconnected");
     });
 
@@ -193,7 +193,7 @@ export const useSocketHandler = (
     });
 
     return () => {
-      console.log('Cleaning up socket in useEffect cleanup');
+      console.log('[AI Smarttalk] Cleaning up socket in useEffect cleanup');
       if (socket) {
         socket.removeAllListeners();
         socket.disconnect();
