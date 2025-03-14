@@ -85,6 +85,27 @@ export const chatReducer = (
   switch (action.type) {
     case ChatActionTypes.SET_MESSAGES:
       if (!action.payload.chatInstanceId) return state;
+      
+      // If we have existing messages, merge them with new ones based on timestamps
+      if (state.messages.length > 0 && action.payload.messages?.length) {
+        const existingMessages = new Map(state.messages.map(msg => [msg.id, msg]));
+        const newMessages = action.payload.messages;
+        
+        // Merge messages, keeping the most recent version of each message
+        newMessages.forEach(msg => {
+          const existing = existingMessages.get(msg.id);
+          if (!existing || new Date(msg.updated_at) > new Date(existing.updated_at)) {
+            existingMessages.set(msg.id, msg);
+          }
+        });
+        
+        // Convert back to array and sort by creation date
+        const mergedMessages = Array.from(existingMessages.values())
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        
+        return { ...state, messages: mergedMessages.slice(-30) };
+      }
+      
       return { ...state, messages: action.payload.messages?.slice(-30) || [] };
 
     case ChatActionTypes.ADD_MESSAGE:

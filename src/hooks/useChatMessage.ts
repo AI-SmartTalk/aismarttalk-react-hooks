@@ -172,12 +172,18 @@ export const useChatMessages = ({
 
   const fetchMessagesFromApi = useCallback(async () => {
     const currentInstanceId = chatInstanceId;
+    console.log('[AI Smarttalk] Fetching messages from API for instance:', currentInstanceId);
 
     if (!currentInstanceId) {
       return;
     }
 
     try {
+      dispatch({
+        type: ChatActionTypes.SET_LOADING,
+        payload: { isLoading: true },
+      });
+
       const response = await fetch(
         `${finalApiUrl}/api/chat/history/${currentInstanceId}`,
         {
@@ -187,14 +193,34 @@ export const useChatMessages = ({
         }
       );
 
+      // If instance changed during fetch, abort to prevent flickering
+      if (currentInstanceId !== chatInstanceId) {
+        console.log('[AI Smarttalk] Instance changed during fetch, aborting');
+        dispatch({
+          type: ChatActionTypes.SET_LOADING,
+          payload: { isLoading: false },
+        });
+        return;
+      }
+
       if (response.status === 429) {
         setError("Trop de requêtes. Veuillez patienter avant de réessayer.");
+        dispatch({
+          type: ChatActionTypes.SET_LOADING,
+          payload: { isLoading: false },
+        });
         return;
       }
 
       const data = await response.json();
 
+      // Double-check instance didn't change during JSON parsing
       if (currentInstanceId !== chatInstanceId) {
+        console.log('[AI Smarttalk] Instance changed after JSON parsing, aborting');
+        dispatch({
+          type: ChatActionTypes.SET_LOADING,
+          payload: { isLoading: false },
+        });
         return;
       }
 
@@ -252,6 +278,11 @@ export const useChatMessages = ({
     } catch (err: any) {
       setError("Erreur lors de la récupération des messages : " + err.message);
       console.error(err);
+    } finally {
+      dispatch({
+        type: ChatActionTypes.SET_LOADING,
+        payload: { isLoading: false },
+      });
     }
   }, [finalApiUrl, finalApiToken, chatInstanceId]);
 
@@ -280,7 +311,8 @@ export const useChatMessages = ({
     setUser,
     fetchMessagesFromApi,
     debouncedTypingUsersUpdate,
-    canvasHistory
+    canvasHistory,
+    state.messages
   );
 
   useEffect(() => {
