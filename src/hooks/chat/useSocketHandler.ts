@@ -31,12 +31,33 @@ export const useSocketHandler = (
   setUser: (user: User) => void,
   fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
-  canvasHistory: ReturnType<typeof useCanvasHistory>
+  canvasHistory: ReturnType<typeof useCanvasHistory>,
+  messages: FrontChatMessage[]
 ): any => {
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
+  const lastMessageReceivedRef = useRef<number>(0);
+  const fetchInProgressRef = useRef<boolean>(false);
 
-  const stableFetchMessages = useCallback(fetchMessagesFromApi, []);
+  const stableFetchMessages = useCallback(() => {
+    // Prevent concurrent fetches - only one fetch can run at a time
+    if (fetchInProgressRef.current) {
+      console.log('[AI Smarttalk] Fetch already in progress, skipping duplicate fetch');
+      return;
+    }
+
+    // Set fetch in progress flag
+    fetchInProgressRef.current = true;
+    
+    // Call the actual fetch function
+    fetchMessagesFromApi();
+
+    // Reset the flag after a short delay to allow for race condition recovery
+    setTimeout(() => {
+      fetchInProgressRef.current = false;
+    }, 500);
+  }, [fetchMessagesFromApi]);
+
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
   // Force socket cleanup when instance changes
@@ -52,6 +73,8 @@ export const useSocketHandler = (
         socketRef.current = null;
       }
       currentInstanceRef.current = chatInstanceId;
+      // Reset message received flag on instance change
+      lastMessageReceivedRef.current = 0;
     }
   }, [chatInstanceId]);
 
@@ -102,7 +125,16 @@ export const useSocketHandler = (
       console.log('[AI Smarttalk] Socket connected, joining chat:', chatInstanceId);
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
-      stableFetchMessages();
+      
+      // Check if we've received a message very recently (within 2 seconds)
+      // If so, we can skip the initial fetch to avoid flickering
+      const timeSinceLastMessage = Date.now() - lastMessageReceivedRef.current;
+      if (timeSinceLastMessage > 2000) {
+        console.log('[AI Smarttalk] No recent messages, fetching from API');
+        stableFetchMessages();
+      } else {
+        console.log('[AI Smarttalk] Skipping fetch due to recent message');
+      }
     });
 
     socket.on("disconnect", (reason) => {
@@ -116,6 +148,8 @@ export const useSocketHandler = (
           (user.email && data.message.user?.email === user.email);
 
         if (!isOwnMessage) {
+          lastMessageReceivedRef.current = Date.now();
+          
           dispatch({
             type: ChatActionTypes.ADD_MESSAGE,
             payload: {
