@@ -219,21 +219,37 @@ export const useSocketHandler = (
           lastMessageReceivedRef.current = Date.now();
 
           // Check if this is an AI message (empty email) or a user message
-          const isAIMessage =
-            !data.message.user?.email || data.message.user.email === "";
-
+          const isAIMessage = !data.message.user?.email || data.message.user.email === '';
+          
           // For anonymous users, only allow AI messages to be added with isSent=false
-          if (user.id === "anonymous" && !isAIMessage) {
+          if (user.id === 'anonymous' && !isAIMessage) {
             return; // Skip adding this message completely
           }
-
+          
           // Special case: if we're an anonymous user, we need to check if this message
           // might actually be ours but wasn't detected by the normal checks
-          if (user.id === "anonymous") {
+          if (user.id === 'anonymous') {
+            
+            if (isAIMessage) {
+              dispatch({
+                type: ChatActionTypes.ADD_MESSAGE,
+                payload: {
+                  message: {
+                    ...data.message,
+                    isSent: false, // AI messages are NEVER sent by the user
+                  },
+                  chatInstanceId,
+                  userId: user.id,
+                  userEmail: user.email,
+                },
+              });
+              return; // Skip the rest of the processing
+            }
+            
             // For anonymous users, ANY message with the same text is considered our own
             // This is a more aggressive check specifically for anonymous users
             const sameTextMessage = messages.some(
-              (msg) => msg.text.trim() === data.message.text.trim()
+              msg => msg.text.trim() === data.message.text.trim()
             );
 
             if (sameTextMessage) {
@@ -284,7 +300,7 @@ export const useSocketHandler = (
               payload: {
                 message: {
                   ...data.message,
-                  isSent: true, // Force isSent=true for anonymous users
+                  isSent: false,
                 },
                 chatInstanceId,
                 userId: user.id,
