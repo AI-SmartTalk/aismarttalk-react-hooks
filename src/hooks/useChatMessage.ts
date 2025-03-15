@@ -70,10 +70,12 @@ export const useChatMessages = ({
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
-  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
+  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? "-smartadmin" : "-standard"}]`;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const {chatInstanceId, setChatInstanceId, getNewInstance, } = useChatInstance({chatModelId, lang, config, isAdmin:isAdmin})
+  const { chatInstanceId, setChatInstanceId, getNewInstance } = useChatInstance(
+    { chatModelId, lang, config, isAdmin: isAdmin }
+  );
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [conversationStarters, setConversationStarters] = useState<CTADTO[]>(
@@ -83,7 +85,7 @@ export const useChatMessages = ({
   const [chatTitle, setChatTitle] = useState<string>("");
   const [conversations, setConversations] = useState<ChatHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);  
+  const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const selectConversation = useCallback(
     async (id: string | undefined) => {
@@ -145,7 +147,7 @@ export const useChatMessages = ({
 
   useEffect(() => {
     if (chatInstanceId) return;
-    
+
     if (isAdmin) return;
 
     const savedInstance = localStorage.getItem(storageKey);
@@ -172,8 +174,6 @@ export const useChatMessages = ({
 
   const fetchMessagesFromApi = useCallback(async () => {
     const currentInstanceId = chatInstanceId;
-    console.log('[AI Smarttalk] Fetching messages from API for instance:', currentInstanceId);
-
     if (!currentInstanceId) {
       return;
     }
@@ -195,7 +195,6 @@ export const useChatMessages = ({
 
       // If instance changed during fetch, abort to prevent flickering
       if (currentInstanceId !== chatInstanceId) {
-        console.log('[AI Smarttalk] Instance changed during fetch, aborting');
         dispatch({
           type: ChatActionTypes.SET_LOADING,
           payload: { isLoading: false },
@@ -216,7 +215,6 @@ export const useChatMessages = ({
 
       // Double-check instance didn't change during JSON parsing
       if (currentInstanceId !== chatInstanceId) {
-        console.log('[AI Smarttalk] Instance changed after JSON parsing, aborting');
         dispatch({
           type: ChatActionTypes.SET_LOADING,
           payload: { isLoading: false },
@@ -225,29 +223,6 @@ export const useChatMessages = ({
       }
 
       const apiMessages = data.messages || [];
-
-      if (data.connectedOrAnonymousUser) {
-        // Only update user if it's significantly different and we don't have a config-provided user
-        const shouldUpdateUser = 
-          !config?.user && // Don't update if user was provided in config
-          user?.id !== data.connectedOrAnonymousUser.id && 
-          (
-            user?.email !== data.connectedOrAnonymousUser.email ||
-            user?.name !== data.connectedOrAnonymousUser.name ||
-            user?.image !== data.connectedOrAnonymousUser.image
-          );
-
-        if (shouldUpdateUser) {
-          setUser({
-            ...user,
-            id: data.connectedOrAnonymousUser.id,
-            email: data.connectedOrAnonymousUser.email,
-            name: data.connectedOrAnonymousUser.name,
-            image: data.connectedOrAnonymousUser.image,
-          });
-        }
-      }
-
       if (apiMessages?.length > 0) {
         const currentUserId =
           data.connectedOrAnonymousUser?.id || user?.id || "anonymous";
@@ -319,24 +294,28 @@ export const useChatMessages = ({
     if (!chatInstanceId) return;
 
     const history = loadConversationHistory(chatInstanceId);
-    if (history && Array.isArray(history.messages) && history.messages.length > 0) {
+    if (
+      history &&
+      Array.isArray(history.messages) &&
+      history.messages.length > 0
+    ) {
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
           chatInstanceId,
           messages: history.messages,
-          title: history.title || '',
+          title: history.title || "",
         },
       });
-      setChatTitle(history.title || '');
-      
+      setChatTitle(history.title || "");
+
       // Update conversations to ensure the history is reflected
       setConversations((prev) => {
         const existing = prev.findIndex((c) => c.id === chatInstanceId);
         if (existing === -1) {
           const newConversation = {
             id: chatInstanceId,
-            title: history.title || '',
+            title: history.title || "",
             messages: history.messages,
             lastUpdated: new Date().toISOString(),
           };
@@ -370,14 +349,20 @@ export const useChatMessages = ({
     if (!chatInstanceId || !socketRef?.current) return;
 
     const shouldReconnect = socketStatus === "disconnected" && !isAdmin;
-    
+
     if (shouldReconnect) {
       try {
-        if (socketRef.current.disconnect && typeof socketRef.current.disconnect === "function") {
+        if (
+          socketRef.current.disconnect &&
+          typeof socketRef.current.disconnect === "function"
+        ) {
           socketRef.current.disconnect();
         }
 
-        if (socketRef.current.connect && typeof socketRef.current.connect === "function") {
+        if (
+          socketRef.current.connect &&
+          typeof socketRef.current.connect === "function"
+        ) {
           socketRef.current.connect();
         }
       } catch (err) {
@@ -419,8 +404,11 @@ export const useChatMessages = ({
 
     showTemporaryToolState("Sending...", "loading");
 
+    // Generate a stable ID for this message for better tracking/deduplication
+    const messageId = `temp-${user.id || "anonymous"}-${Date.now()}`;
+
     const userMessage: FrontChatMessage = {
-      id: `temp-${Date.now()}`,
+      id: messageId,
       text: messageText,
       isSent: true,
       chatInstanceId,
@@ -449,25 +437,27 @@ export const useChatMessages = ({
         headers["Authorization"] = `Bearer ${user.token}`;
       }
 
-      const endpoint = isAdmin 
+      const endpoint = isAdmin
         ? `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/chat`
         : `${finalApiUrl}/api/chat`;
 
-      const requestData = isAdmin ? {
-        query: messageText,
-        message: messageText,
-        lang,
-        chatInstanceId,
-        chatModelId,
-        timezone: new Date().toString(),
-        userAgent: navigator.userAgent
-      } : {
-        message: messageText,
-        messages: [...state.messages, userMessage],
-        chatInstanceId,
-        chatModelId,
-        lang,
-      };
+      const requestData = isAdmin
+        ? {
+            query: messageText,
+            message: messageText,
+            lang,
+            chatInstanceId,
+            chatModelId,
+            timezone: new Date().toString(),
+            userAgent: navigator.userAgent,
+          }
+        : {
+            message: messageText,
+            messages: [...state.messages, userMessage],
+            chatInstanceId,
+            chatModelId,
+            lang,
+          };
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -538,37 +528,116 @@ export const useChatMessages = ({
       const targetInstanceId = specificChatInstanceId || chatInstanceId;
 
       if (!targetInstanceId) {
-        console.error("No chat instance ID available for title update");
+        console.error(
+          "[AI Smarttalk] No chat instance ID available for title update"
+        );
         return;
       }
 
+      // Update local state for the current chat instance
       if (targetInstanceId === chatInstanceId) {
         setChatTitle(newTitle);
+
+        // Dispatch UPDATE_TITLE action to update the title in the reducer state
+        dispatch({
+          type: ChatActionTypes.UPDATE_TITLE,
+          payload: {
+            title: newTitle,
+            chatInstanceId: targetInstanceId,
+          },
+        });
       }
 
+      // Ensure conversations are properly loaded before updating
+      if (conversations.length === 0) {
+        try {
+          const stored = localStorage.getItem(
+            `chat-conversations-${chatModelId}`
+          );
+          if (stored) {
+            const parsedConversations = JSON.parse(stored);
+            setConversations(parsedConversations);
+          }
+        } catch (e) {
+          console.error(
+            "[AI Smarttalk] Error loading conversations from storage:",
+            e
+          );
+        }
+      }
+
+      // First, make sure the title is updated in local storage history
+      try {
+        const storedHistory = loadConversationHistory(targetInstanceId);
+        if (storedHistory && storedHistory.messages) {
+          saveConversationHistory(
+            targetInstanceId,
+            newTitle,
+            storedHistory.messages
+          );
+        } else {
+          // If we can't find conversation history but we have current messages
+          if (
+            targetInstanceId === chatInstanceId &&
+            state.messages.length > 0
+          ) {
+            saveConversationHistory(targetInstanceId, newTitle, state.messages);
+          }
+        }
+      } catch (e) {
+        console.error("[AI Smarttalk] Error updating conversation history:", e);
+      }
+
+      // Then update the conversations list
       setConversations((prev) => {
-        const updated = prev.map((conv) =>
-          conv.id === targetInstanceId ? { ...conv, title: newTitle } : conv
+        const existingConversation = prev.find(
+          (c) => c.id === targetInstanceId
         );
-        localStorage.setItem(
-          `chat-conversations-${chatModelId}`,
-          JSON.stringify(updated)
-        );
-        return updated;
+
+        if (!existingConversation) {
+          // If conversation doesn't exist in list, create it
+          const newConversationItem = {
+            id: targetInstanceId,
+            title: newTitle,
+            messages: targetInstanceId === chatInstanceId ? state.messages : [],
+            lastUpdated: new Date().toISOString(),
+          };
+
+          const updated = [newConversationItem, ...prev];
+
+          // Save to localStorage
+          localStorage.setItem(
+            `chat-conversations-${chatModelId}`,
+            JSON.stringify(updated)
+          );
+
+          return updated;
+        } else {
+          // Update existing conversation
+          const updated = prev.map((conv) =>
+            conv.id === targetInstanceId
+              ? {
+                  ...conv,
+                  title: newTitle,
+                  lastUpdated: new Date().toISOString(),
+                }
+              : conv
+          );
+
+          // Save to localStorage
+          localStorage.setItem(
+            `chat-conversations-${chatModelId}`,
+            JSON.stringify(updated)
+          );
+
+          return updated;
+        }
       });
 
-      const conversationToUpdate = conversations.find(
-        (conv) => conv.id === targetInstanceId
-      );
-      if (conversationToUpdate) {
-        saveConversationHistory(
-          targetInstanceId,
-          newTitle,
-          conversationToUpdate.messages || []
-        );
-      }
+      // Force a direct update to localStorage title as well
+      localStorage.setItem(`chat-${targetInstanceId}-title`, newTitle);
     },
-    [chatInstanceId, chatModelId, conversations]
+    [chatInstanceId, chatModelId, dispatch, conversations, state.messages]
   );
 
   const createNewChat = useCallback(async () => {

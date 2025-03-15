@@ -74,6 +74,7 @@ interface ChatAction {
     suggestions?: string[];
     title?: string;
     userEmail?: string;
+    userId?: string;
     isLoading?: boolean;
   };
 }
@@ -86,12 +87,21 @@ export const chatReducer = (
     case ChatActionTypes.SET_MESSAGES:
       if (!action.payload.chatInstanceId) return state;
       
-      // If we have existing messages, merge them with new ones based on timestamps
+      
+      if (action.payload.userId === 'anonymous' && action.payload.messages) {      
+        action.payload.messages.forEach(msg => {
+          if (msg.user?.id === 'anonymous' || msg.user?.email === 'anonymous@example.com') {
+            msg.isSent = true;
+          }
+        });
+      }
+      
+      
       if (state.messages.length > 0 && action.payload.messages?.length) {
         const existingMessages = new Map(state.messages.map(msg => [msg.id, msg]));
         const newMessages = action.payload.messages;
         
-        // Merge messages, keeping the most recent version of each message
+        
         newMessages.forEach(msg => {
           const existing = existingMessages.get(msg.id);
           if (!existing || new Date(msg.updated_at) > new Date(existing.updated_at)) {
@@ -99,7 +109,7 @@ export const chatReducer = (
           }
         });
         
-        // Convert back to array and sort by creation date
+        
         const mergedMessages = Array.from(existingMessages.values())
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         
@@ -111,26 +121,72 @@ export const chatReducer = (
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;
       if (!newMessage) return state;
-
+                                    
       const messageExists = state.messages.some(
-        (msg) =>
-          msg.text === newMessage.text &&
-          msg.user?.id === newMessage.user?.id &&
-          Math.abs(
-            new Date(msg.created_at).getTime() -
+        (msg) => 
+          msg.id === newMessage.id || 
+          (
+            msg.text === newMessage.text &&
+            
+            Math.abs(
+              new Date(msg.created_at).getTime() -
               new Date(newMessage.created_at).getTime()
-          ) < 1000
+            ) < 5000 
+          ) ||
+          
+          (
+            action.payload.userId === 'anonymous' &&
+            msg.text.trim() === newMessage.text.trim() 
+          )
       );
 
-      if (!messageExists) {
+      if (!messageExists) {       
         const updatedMessages = [...state.messages, newMessage];
         debouncedSaveMessagesToLocalStorage(
           updatedMessages,
           action.payload.chatInstanceId || ""
         );
         return { ...state, messages: updatedMessages };
+      } else {       
+        
+        if (
+          (newMessage.user?.id === 'anonymous' || newMessage.user?.email === 'anonymous@example.com') && 
+          action.payload.userId === 'anonymous'
+        ) {          
+          
+          const messagesToUpdate: number[] = [];
+          state.messages.forEach((msg, index) => {
+            if (msg.text === newMessage.text && 
+                Math.abs(
+                  new Date(msg.created_at).getTime() -
+                  new Date(newMessage.created_at).getTime()
+                ) < 10000 && 
+                !msg.isSent) {
+              messagesToUpdate.push(index);
+            }
+          });
+          
+          if (messagesToUpdate.length > 0) {            
+            const updatedMessages = [...state.messages];
+            
+            messagesToUpdate.forEach(index => {              
+              updatedMessages[index] = {
+                ...updatedMessages[index],
+                isSent: true,
+              };
+            });
+            
+            debouncedSaveMessagesToLocalStorage(
+              updatedMessages,
+              action.payload.chatInstanceId || ""
+            );
+            
+            return { ...state, messages: updatedMessages };
+          }
+        }
+        
+        return state;
       }
-      return state;
 
     case ChatActionTypes.RESET_CHAT:
       if (action.payload.chatInstanceId) {
@@ -152,11 +208,11 @@ export const chatReducer = (
     case ChatActionTypes.UPDATE_MESSAGE:
       const message = action.payload.message;
       if (!message) return state;
-
+          
       const updatedMessageIndex = state.messages.findIndex(
         (msg) => msg.id === message.id
       );
-      if (updatedMessageIndex !== -1) {
+      if (updatedMessageIndex !== -1) {        
         const updatedMessages = [...state.messages];
         updatedMessages[updatedMessageIndex] = {
           ...updatedMessages[updatedMessageIndex],
@@ -168,12 +224,23 @@ export const chatReducer = (
         );
         return { ...state, messages: updatedMessages };
       }
+      
       return {
         ...state,
         messages: [...state.messages, message],
       };
 
     case ChatActionTypes.UPDATE_TITLE:
+      if (!action.payload.chatInstanceId) {
+        return { ...state, title: action.payload.title || "💬" };
+      }
+      
+      
+      if (action.payload.title) {
+        const key = `chat-${action.payload.chatInstanceId}-title`;
+        localStorage.setItem(key, action.payload.title);
+      }
+      
       return { ...state, title: action.payload.title || "💬" };
 
     case ChatActionTypes.SET_LOADING:

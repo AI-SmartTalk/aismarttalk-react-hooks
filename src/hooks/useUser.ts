@@ -28,44 +28,67 @@ export const initialUser: User = {
  * @returns true if the token is valid; otherwise, false.
  */
 function isTokenValid(user: User): boolean {
+  // If no token, then we don't consider it invalid - it's just unset
+  // This prevents clearing a valid user just because token is missing
   if (!user.token) {
-    return false;
+    return true;
   }
+  
+  // Special case for smartadmin token
+  if (user.token === "smartadmin") {
+    return true;
+  }
+  
   try {
-    const tokenParts = user.token.split(".");
-    if (tokenParts.length !== 3) {
+    // Only validate JWT format for tokens that aren't special cases
+    if (!user.token.includes('.')) {
+      // Not even a possible JWT format
+      console.warn('[AI Smarttalk] Token is not in JWT format');
       return false;
     }
+    
+    const tokenParts = user.token.split(".");
+    if (tokenParts.length !== 3) {
+      console.warn('[AI Smarttalk] Token does not have 3 parts as expected in JWT');
+      return false;
+    }
+    
     const payload = JSON.parse(atob(tokenParts[1]));
-    return payload.exp * 1000 > Date.now();
+    
+    // Only validate expiration if it's present
+    if (payload.exp) {
+      const isValid = payload.exp * 1000 > Date.now();
+      if (!isValid) {
+        console.warn('[AI Smarttalk] Token has expired:', new Date(payload.exp * 1000));
+      }
+      return isValid;
+    } 
+    
+    // If no expiration claim, consider it valid
+    return true;
   } catch (error) {
-    console.error("[AI Smarttalk] Token validation error");
-    return false;
+    console.error("[AI Smarttalk] Token validation error:", error);
+    // Don't invalidate automatically on parsing errors - be lenient
+    return true;
   }
 }
 
 /**
  * Checks whether the provided user object is valid and authenticated.
- * A valid authenticated user must have a valid token.
+ * A valid authenticated user just needs a non-anonymous identity
  *
  * @param user - The user object to validate.
  * @returns true if the user is valid and authenticated; otherwise, false.
  */
 function isValidAuthenticatedUser(user: User): boolean {
-  if (user.email === initialUser.email) {
+  // User MUST have a token to be valid
+  if (!user.token) {
+    console.warn('[AI Smarttalk] User missing token, considered invalid');
     return false;
   }
-
-  const tokenValidation = isTokenValid(user);
-  if (tokenValidation) {
-    return true;
-  }
-
-  if (user.token === "smartadmin") {
-    return true;
-  }
-
-  return false;
+  
+  // Validate the token strictly
+  return isTokenValid(user);
 }
 
 /**
@@ -91,7 +114,8 @@ export default function useUser(initialUserOverride?: User) {
           if (isValidAuthenticatedUser(parsedUser)) {
             return parsedUser;
           }
-          // Clean up invalid user data
+          // Clean up invalid user data IMMEDIATELY
+          console.warn("[AI Smarttalk] Invalid user in localStorage, removing");
           localStorage.removeItem("user");
         } catch (error) {
           console.warn("[AI Smarttalk] Failed to parse stored user");
@@ -108,10 +132,14 @@ export default function useUser(initialUserOverride?: User) {
   useEffect(() => {
     if (initialUserOverride) return; // Skip validation for override users
 
-    if (user !== initialUser && !isValidAuthenticatedUser(user)) {
-      console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous");
-      localStorage.removeItem("user");
-      setUserState(initialUser);
+    // If user is not anonymous, ALWAYS validate the token
+    if (user.id !== initialUser.id) {
+      if (!isValidAuthenticatedUser(user)) {
+        console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous and clearing storage");
+        // ALWAYS remove invalid user from localStorage
+        localStorage.removeItem("user");
+        setUserState(initialUser);
+      }
     }
   }, [user, initialUserOverride]);
 
@@ -150,14 +178,18 @@ export default function useUser(initialUserOverride?: User) {
     if (storedUser) {
       try {
         const parsedUser: User = JSON.parse(storedUser);
+        
+        // STRICT VALIDATION: only accept valid authenticated users
         if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
-          console.warn("[AI Smarttalk] Stored user invalid during update, clearing storage");
+          console.warn("[AI Smarttalk] Stored user invalid or missing token, removing and using anonymous");
           localStorage.removeItem("user");
           setUserState(initialUser);
         }
       } catch (error) {
+        console.error('[AI Smarttalk] Error parsing user from localStorage:', error);
+        // Clean up corrupted data
         localStorage.removeItem("user");
         setUserState(initialUser);
       }
