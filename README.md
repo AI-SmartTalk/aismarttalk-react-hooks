@@ -150,6 +150,13 @@ export default ChatInstanceComponent;
 
 ## 📝 Changelog
 
+### 1.4.0 ✨ Introduce useOtpAuth for Login
+- 🔑 Added `useOtpAuth` hook to facilitate user login via OTP.
+- 🧹 Removed unnecessary console logs to clean up the codebase.
+- ⚡ Improved caching mechanisms for better performance.
+- 📜 Enhanced chat history management for a more reliable user experience.
+
+
 ### 1.3.0 ✨ Add User Config
 - 🛠️ Allow user configuration 
 ```ts
