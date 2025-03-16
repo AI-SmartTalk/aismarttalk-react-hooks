@@ -165,218 +165,62 @@ export const useSocketHandler = (
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        // For anonymous users, IMMEDIATELY check if this is a duplicate by text
-        // and completely skip processing if it is
-        if (user.id === "anonymous") {
-          const exactTextMatch = messages.some(
-            (msg) => msg.text.trim() === data.message.text.trim()
-          );
-
-          if (exactTextMatch) {
-            return; // Skip all processing for this message
-          }
-        }
-
-        // Check if this message already exists in the state by comparing ID or content + timing
-        const messageAlreadyExists = messages.some(
-          (existingMsg) =>
-            // Check by ID
-            existingMsg.id === data.message.id ||
-            // Or check by content + timing for ANY message (not just those with matching email)
-            (existingMsg.text === data.message.text &&
-              Math.abs(
-                new Date(existingMsg.created_at).getTime() -
-                  new Date(data.message.created_at || Date.now()).getTime()
-              ) < 5000)
+        // IMPROVED DUPLICATE DETECTION: Check by ID *OR* by content+timing
+        const isDuplicate = messages.some(msg => 
+          // Check by ID
+          msg.id === data.message.id ||
+          // Or check if same text was sent recently (within 5 seconds)
+          (msg.text === data.message.text &&
+           Math.abs(
+             new Date(msg.created_at).getTime() - 
+             new Date(data.message.created_at || Date.now()).getTime()
+           ) < 5000)
         );
-
-        // SIMPLIFICATION: Pour les messages anonymes - si l'email correspond à anonymous@example.com,
-        // OU si le message était envoyé par l'utilisateur actuel (email correspond), c'est le message de l'utilisateur
-        const isAnonymousMessage =
-          data.message.user?.email === initialUser.email ||
-          data.message.user?.email === user.email;
-
-        // On garde la vérification par délai pour tous les cas
-        const isDuplicateByTimestamp = messages.some(
-          (existingMsg) =>
-            existingMsg.text === data.message.text &&
-            existingMsg.isSent === true &&
-            Math.abs(
-              new Date(existingMsg.created_at).getTime() -
-                new Date(data.message.created_at || Date.now()).getTime()
-            ) < 5000 // 5 secondes de différence max
-        );
-
-        // Pour les utilisateurs non-anonymes, utiliser la méthode standard
-        const isOwnMessage =
-          isAnonymousMessage ||
-          (user.id !== "anonymous" &&
-            (data.message.user?.id === user.id ||
-              (user.email && data.message.user?.email === user.email))) ||
-          isDuplicateByTimestamp; // On ajoute la vérification par délai
-
-        if (!isOwnMessage) {        
-          lastMessageReceivedRef.current = Date.now();
-
-          // Check if this is an AI message (empty email) or a user message
-          const isAIMessage = !data.message.user?.email || data.message.user.email === '';
-          
-          // For anonymous users, only allow AI messages to be added with isSent=false
-          if (user.id === 'anonymous' && !isAIMessage) {
-            return; // Skip adding this message completely
-          }
-          
-          // Special case: if we're an anonymous user, we need to check if this message
-          // might actually be ours but wasn't detected by the normal checks
-          if (user.id === 'anonymous') {
-            
-            if (isAIMessage) {
-              dispatch({
-                type: ChatActionTypes.ADD_MESSAGE,
-                payload: {
-                  message: {
-                    ...data.message,
-                    isSent: false, // AI messages are NEVER sent by the user
-                  },
-                  chatInstanceId,
-                  userId: user.id,
-                  userEmail: user.email,
-                },
-              });
-              return; // Skip the rest of the processing
-            }
-            
-            // For anonymous users, ANY message with the same text is considered our own
-            // This is a more aggressive check specifically for anonymous users
-            const sameTextMessage = messages.some(
-              msg => msg.text.trim() === data.message.text.trim()
-            );
-
-            if (sameTextMessage) {
-              // Find the message with the same text and ensure it's marked as sent
-              const existingMsgIndex = messages.findIndex(
-                (msg) => msg.text.trim() === data.message.text.trim()
-              );
-
-              if (existingMsgIndex !== -1) {
-                const existingMsg = messages[existingMsgIndex];                
-                if (!existingMsg.isSent) {
-                  dispatch({
-                    type: ChatActionTypes.UPDATE_MESSAGE,
-                    payload: {
-                      message: {
-                        ...existingMsg,
-                        isSent: true,
-                      },
-                      chatInstanceId,
-                      userId: user.id,
-                      userEmail: user.email,
-                    },
-                  });
-                }
-              }
-
-              return; // Skip adding this message
-            }
-
-            // For anonymous users, check if there's a message with similar text and timing
-            // that was already marked as sent by us
-            const possibleOwnMessage = messages.some(
-              (msg) =>
-                msg.text === data.message.text &&
-                msg.isSent === true &&
-                Math.abs(
-                  new Date(msg.created_at).getTime() -
-                    new Date(data.message.created_at || Date.now()).getTime()
-                ) < 10000 // 10 seconds window for anonymous users
-            );
-
-            if (possibleOwnMessage) {
-              return; // Skip adding this message as it's likely our own
-            }
-
-            dispatch({
-              type: ChatActionTypes.ADD_MESSAGE,
-              payload: {
-                message: {
-                  ...data.message,
-                  isSent: false,
-                },
-                chatInstanceId,
-                userId: user.id,
-                userEmail: user.email,
-              },
-            });
-            return; // Skip the normal dispatch below
-          }
-
-          dispatch({
-            type: ChatActionTypes.ADD_MESSAGE,
-            payload: {
-              message: {
-                ...data.message,
-                isSent: false,
-              },
-              chatInstanceId,
-              userId: user.id,
-              userEmail: user.email,
-            },
+        
+        if (isDuplicate) {
+          console.log('[AI Smarttalk DEBUG] Skipping duplicate message:', {
+            id: data.message.id,
+            text: data.message.text.substring(0, 20)
           });
-        } else {          
-          const messageExists = messages.some(
-            (msg) =>
-              msg.text === data.message.text &&
-              Math.abs(
-                new Date(msg.created_at).getTime() -
-                  new Date(data.message.created_at || Date.now()).getTime()
-              ) < 5000
-          );
-
-          if (isAnonymousMessage && !messageExists) {            
-            dispatch({
-              type: ChatActionTypes.ADD_MESSAGE,
-              payload: {
-                message: {
-                  ...data.message,
-                  isSent: true, // Forcément envoyé car c'est le nôtre
-                },
-                chatInstanceId,
-                userId: user.id,
-                userEmail: user.email,
-              },
-            });
-          }
-          // Ensure existing messages from anonymous users stay marked as sent
-          else if (isAnonymousMessage && user.id === "anonymous") {           
-            // Find the existing message and update its isSent property if needed
-            const existingMsgIndex = messages.findIndex(
-              (msg) =>
-                msg.text === data.message.text &&
-                Math.abs(
-                  new Date(msg.created_at).getTime() -
-                    new Date(data.message.created_at || Date.now()).getTime()
-                ) < 5000
-            );
-
-            if (existingMsgIndex !== -1) {
-              const existingMsg = messages[existingMsgIndex];              
-              if (!existingMsg.isSent) {                
-                dispatch({
-                  type: ChatActionTypes.UPDATE_MESSAGE,
-                  payload: {
-                    message: {
-                      ...existingMsg,
-                      isSent: true,
-                    },
-                    chatInstanceId,
-                    userId: user.id,
-                    userEmail: user.email,
-                  },
-                });
-              }
-            }
-          }
+          return; // Skip duplicate messages
         }
+        
+        // EXACT LOGIC AS REQUESTED: 
+        // A message is isSent=true if:
+        // 1. The message has no user OR
+        // 2. The user is the initial user (anonymous) OR
+        // 3. The user is the current user
+        const hasNoUser = !data.message.user;
+        const isInitialUser = data.message.user?.id === 'anonymous' || data.message.user?.email === 'anonymous@example.com';
+        const isCurrentUser = 
+          (user.id !== 'anonymous' && data.message.user?.id === user.id) || 
+          (user.email && data.message.user?.email === user.email);
+        
+        // Apply the condition exactly as requested
+        const shouldBeSent = hasNoUser || isInitialUser || isCurrentUser;
+        
+        // Log for debugging
+        console.log('[AI Smarttalk DEBUG] Message condition check:', {
+          id: data.message.id,
+          hasNoUser,
+          isInitialUser,
+          isCurrentUser,
+          shouldBeSent
+        });
+        
+        // Add the message with the correct isSent value
+        dispatch({
+          type: ChatActionTypes.ADD_MESSAGE,
+          payload: {
+            message: {
+              ...data.message,
+              isSent: shouldBeSent, // Apply the exact condition as requested
+            },
+            chatInstanceId,
+            userId: user.id,
+            userEmail: user.email,
+          },
+        });
       }
     });
 

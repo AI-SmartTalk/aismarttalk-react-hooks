@@ -87,20 +87,21 @@ export const chatReducer = (
     case ChatActionTypes.SET_MESSAGES:
       if (!action.payload.chatInstanceId) return state;
       
-      
-      if (action.payload.userId === 'anonymous' && action.payload.messages) {      
+      if (action.payload.messages && action.payload.userId) {
         action.payload.messages.forEach(msg => {
-          if (msg.user?.id === 'anonymous' || msg.user?.email === 'anonymous@example.com') {
-            msg.isSent = true;
-          }
+          const hasNoUser = !msg.user;
+          const isInitialUser = msg.user?.id === 'anonymous' || msg.user?.email === 'anonymous@example.com';
+          const isCurrentUser = 
+            (action.payload.userId !== 'anonymous' && msg.user?.id === action.payload.userId) || 
+            (action.payload.userEmail && msg.user?.email === action.payload.userEmail);
+          
+          msg.isSent = !!(hasNoUser || isInitialUser || isCurrentUser);
         });
       }
-      
       
       if (state.messages.length > 0 && action.payload.messages?.length) {
         const existingMessages = new Map(state.messages.map(msg => [msg.id, msg]));
         const newMessages = action.payload.messages;
-        
         
         newMessages.forEach(msg => {
           const existing = existingMessages.get(msg.id);
@@ -108,7 +109,6 @@ export const chatReducer = (
             existingMessages.set(msg.id, msg);
           }
         });
-        
         
         const mergedMessages = Array.from(existingMessages.values())
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -121,72 +121,38 @@ export const chatReducer = (
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;
       if (!newMessage) return state;
-                                    
-      const messageExists = state.messages.some(
-        (msg) => 
-          msg.id === newMessage.id || 
-          (
-            msg.text === newMessage.text &&
-            
-            Math.abs(
-              new Date(msg.created_at).getTime() -
-              new Date(newMessage.created_at).getTime()
-            ) < 5000 
-          ) ||
-          
-          (
-            action.payload.userId === 'anonymous' &&
-            msg.text.trim() === newMessage.text.trim() 
-          )
+      
+      const messageExists = state.messages.some(msg => 
+        msg.id === newMessage.id ||
+        (msg.text === newMessage.text &&
+         Math.abs(
+           new Date(msg.created_at).getTime() - 
+           new Date(newMessage.created_at || Date.now()).getTime()
+         ) < 5000)
       );
-
-      if (!messageExists) {       
-        const updatedMessages = [...state.messages, newMessage];
-        debouncedSaveMessagesToLocalStorage(
-          updatedMessages,
-          action.payload.chatInstanceId || ""
-        );
-        return { ...state, messages: updatedMessages };
-      } else {       
-        
-        if (
-          (newMessage.user?.id === 'anonymous' || newMessage.user?.email === 'anonymous@example.com') && 
-          action.payload.userId === 'anonymous'
-        ) {          
-          
-          const messagesToUpdate: number[] = [];
-          state.messages.forEach((msg, index) => {
-            if (msg.text === newMessage.text && 
-                Math.abs(
-                  new Date(msg.created_at).getTime() -
-                  new Date(newMessage.created_at).getTime()
-                ) < 10000 && 
-                !msg.isSent) {
-              messagesToUpdate.push(index);
-            }
-          });
-          
-          if (messagesToUpdate.length > 0) {            
-            const updatedMessages = [...state.messages];
-            
-            messagesToUpdate.forEach(index => {              
-              updatedMessages[index] = {
-                ...updatedMessages[index],
-                isSent: true,
-              };
-            });
-            
-            debouncedSaveMessagesToLocalStorage(
-              updatedMessages,
-              action.payload.chatInstanceId || ""
-            );
-            
-            return { ...state, messages: updatedMessages };
-          }
-        }
-        
+      
+      if (messageExists) {
+        console.log('[AI Smarttalk DEBUG] REDUCER: Skipping duplicate message:', {
+          id: newMessage.id,
+          text: newMessage.text.substring(0, 20)
+        });
         return state;
       }
+      
+      const hasNoUser = !newMessage.user;
+      const isInitialUser = newMessage.user?.id === 'anonymous' || newMessage.user?.email === 'anonymous@example.com';
+      const isCurrentUser = 
+        (action.payload.userId !== 'anonymous' && newMessage.user?.id === action.payload.userId) || 
+        (action.payload.userEmail && newMessage.user?.email === action.payload.userEmail);
+      
+      newMessage.isSent = !!(hasNoUser || isInitialUser || isCurrentUser);
+      
+      const updatedMessages = [...state.messages, newMessage];
+      debouncedSaveMessagesToLocalStorage(
+        updatedMessages,
+        action.payload.chatInstanceId || ""
+      );
+      return { ...state, messages: updatedMessages };
 
     case ChatActionTypes.RESET_CHAT:
       if (action.payload.chatInstanceId) {
@@ -208,11 +174,19 @@ export const chatReducer = (
     case ChatActionTypes.UPDATE_MESSAGE:
       const message = action.payload.message;
       if (!message) return state;
-          
+      
+      const hasNoUserUpdate = !message.user;
+      const isInitialUserUpdate = message.user?.id === 'anonymous' || message.user?.email === 'anonymous@example.com';
+      const isCurrentUserUpdate = 
+        (action.payload.userId !== 'anonymous' && message.user?.id === action.payload.userId) || 
+        (action.payload.userEmail && message.user?.email === action.payload.userEmail);
+      
+      message.isSent = !!(hasNoUserUpdate || isInitialUserUpdate || isCurrentUserUpdate);
+      
       const updatedMessageIndex = state.messages.findIndex(
         (msg) => msg.id === message.id
       );
-      if (updatedMessageIndex !== -1) {        
+      if (updatedMessageIndex !== -1) {
         const updatedMessages = [...state.messages];
         updatedMessages[updatedMessageIndex] = {
           ...updatedMessages[updatedMessageIndex],
