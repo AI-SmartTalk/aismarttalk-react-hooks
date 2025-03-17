@@ -4,6 +4,7 @@ import { FrontChatMessage } from '../../types/chat';
 import { User } from '../../types/users';
 import { ChatActionTypes } from '../../reducers/chatReducers';
 import { saveConversationHistory } from '../../utils/localStorageHelpers';
+import { shouldMessageBeSent } from "../../utils/messageUtils";
 
 export const useMessageHandler = (
   chatInstanceId: string,
@@ -21,7 +22,7 @@ export const useMessageHandler = (
     const newMessage: FrontChatMessage = {
       id: message.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       text: message.text,
-      isSent: true,
+      isSent: false,
       chatInstanceId,
       created_at: message.created_at || new Date().toISOString(),
       updated_at: message.updated_at || new Date().toISOString(),
@@ -33,11 +34,7 @@ export const useMessageHandler = (
       },
     };
     
-    
-    // For anonymous users, always ensure messages are marked as sent
-    if (user.id === 'anonymous' && newMessage.user?.id === user.id) {
-      newMessage.isSent = true;
-    }
+    newMessage.isSent = shouldMessageBeSent(newMessage, user.id, user.email);
 
     if (chatTitle === '💬') {
       setChatTitle(
@@ -57,7 +54,17 @@ export const useMessageHandler = (
     });
 
     const updatedMessages = [...messages, newMessage];
-    saveConversationHistory(chatInstanceId, chatTitle || '', updatedMessages);
+    saveConversationHistory(
+      chatInstanceId, 
+      chatTitle || '', 
+      updatedMessages,
+      {
+        id: user.id ?? '',
+        email: user.email ?? '',
+        name: user.name ?? '',
+        image: user.image ?? ''
+      }
+    );
   }, [chatInstanceId, dispatch, messages, chatTitle, setChatTitle, user]);
 
   return { addMessage, error, setError };

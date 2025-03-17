@@ -2,6 +2,7 @@
 
 import { CTADTO } from "../types/chat";
 import { FrontChatMessage } from "../types/chat";
+import { identifyConversationOwner } from "./messageUtils";
 
 /**
  * Save conversation starters to local storage.
@@ -52,18 +53,48 @@ export function loadSuggestions(chatInstanceId: string): string[] {
  * @param chatInstanceId - The unique identifier for the chat instance.
  * @param title - The title of the conversation.
  * @param messages - An array of chat messages.
+ * @param currentUser - Optional: The current user, used as fallback owner if only bot messages are present
  */
 export function saveConversationHistory(
   chatInstanceId: string,
   title: string,
-  messages: FrontChatMessage[]
+  messages: FrontChatMessage[],
+  currentUser?: {id: string, email: string, name: string, image?: string}
 ): void {
+  let processedMessages = [...messages];
+  
+  // CORRECTION CRITIQUE: Vérifier si la conversation a un propriétaire non-bot
+  const conversationOwner = identifyConversationOwner(messages);
+  
+  // Si tous les messages sont de bots et que nous avons un utilisateur courant disponible
+  if (!conversationOwner && currentUser && messages.length > 0) {      
+    // Ajouter un message système invisible pour définir l'utilisateur courant comme propriétaire
+    processedMessages.unshift({
+      id: `system-owner-${Date.now()}`,
+      text: "Conversation initiée",
+      isSent: true,
+      chatInstanceId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      user: {
+        id: currentUser.id,
+        email: currentUser.email || '',
+        name: currentUser.name || 'Utilisateur',
+        image: currentUser.image || ''
+      }
+    });
+  }
+  
   const history = {
     title,
-    messages,
+    messages: processedMessages,
     lastUpdated: new Date().toISOString(),
   };
+  
   localStorage.setItem(`chat-${chatInstanceId}-history`, JSON.stringify(history));
+  
+  // TRÈS IMPORTANT: Mettre également à jour la sauvegarde dans chatMessages[ID]
+  localStorage.setItem(`chatMessages[${chatInstanceId}]`, JSON.stringify(processedMessages));
 }
 
 /**

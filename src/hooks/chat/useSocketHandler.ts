@@ -17,6 +17,7 @@ import {
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
+import { shouldMessageBeSent, isMessageDuplicate } from "../../utils/messageUtils";
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -165,48 +166,15 @@ export const useSocketHandler = (
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        // IMPROVED DUPLICATE DETECTION: Check by ID *OR* by content+timing
-        const isDuplicate = messages.some(msg => 
-          // Check by ID
-          msg.id === data.message.id ||
-          // Or check if same text was sent recently (within 5 seconds)
-          (msg.text === data.message.text &&
-           Math.abs(
-             new Date(msg.created_at).getTime() - 
-             new Date(data.message.created_at || Date.now()).getTime()
-           ) < 5000)
-        );
+        // Utiliser la fonction utilitaire pour détecter les doublons
+        const isDuplicate = isMessageDuplicate(data.message, messages);
         
-        if (isDuplicate) {
-          console.log('[AI Smarttalk DEBUG] Skipping duplicate message:', {
-            id: data.message.id,
-            text: data.message.text.substring(0, 20)
-          });
+        if (isDuplicate) {          
           return; // Skip duplicate messages
         }
         
-        // EXACT LOGIC AS REQUESTED: 
-        // A message is isSent=true if:
-        // 1. The message has no user OR
-        // 2. The user is the initial user (anonymous) OR
-        // 3. The user is the current user
-        const hasNoUser = !data.message.user;
-        const isInitialUser = data.message.user?.id === 'anonymous' || data.message.user?.email === 'anonymous@example.com';
-        const isCurrentUser = 
-          (user.id !== 'anonymous' && data.message.user?.id === user.id) || 
-          (user.email && data.message.user?.email === user.email);
-        
-        // Apply the condition exactly as requested
-        const shouldBeSent = hasNoUser || isInitialUser || isCurrentUser;
-        
-        // Log for debugging
-        console.log('[AI Smarttalk DEBUG] Message condition check:', {
-          id: data.message.id,
-          hasNoUser,
-          isInitialUser,
-          isCurrentUser,
-          shouldBeSent
-        });
+        // Utiliser la fonction utilitaire pour déterminer si le message doit être marqué comme envoyé
+        const shouldBeSent = shouldMessageBeSent(data.message, user.id, user.email);              
         
         // Add the message with the correct isSent value
         dispatch({
@@ -214,7 +182,7 @@ export const useSocketHandler = (
           payload: {
             message: {
               ...data.message,
-              isSent: shouldBeSent, // Apply the exact condition as requested
+              isSent: shouldBeSent, // Apply using the utility function
             },
             chatInstanceId,
             userId: user.id,

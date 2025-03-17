@@ -1,4 +1,6 @@
 import { FrontChatMessage } from "../types/chat";
+import { shouldMessageBeSent, isMessageDuplicate } from "../utils/messageUtils";
+import { saveConversationHistory, loadConversationHistory } from "../utils/localStorageHelpers";
 
 export enum ChatActionTypes {
   SET_MESSAGES = "SET_MESSAGES",
@@ -23,10 +25,23 @@ const saveMessagesToLocalStorage = (
   messages: FrontChatMessage[],
   chatInstanceId: string
 ) => {
-  localStorage.setItem(
-    `chatMessages[${chatInstanceId}]`,
-    JSON.stringify(messages)
-  );
+  try {
+    // Récupérer le titre de la conversation existante s'il existe
+    const history = loadConversationHistory(chatInstanceId);
+    const title = history?.title || "💬";
+    
+    // Utiliser saveConversationHistory pour s'assurer que les bots ne sont pas propriétaires
+    // Note: Nous n'avons pas accès à l'utilisateur courant ici, donc on ne peut pas le passer en paramètre
+    // Mais saveConversationHistory vérifiera les propriétaires basés sur les messages existants
+    saveConversationHistory(chatInstanceId, title, messages);
+  } catch (error) {
+    console.error("[AI Smarttalk] Error saving messages to localStorage:", error);
+    // Fallback au comportement précédent en cas d'échec
+    localStorage.setItem(
+      `chatMessages[${chatInstanceId}]`,
+      JSON.stringify(messages)
+    );
+  }
 };
 
 export const debouncedSaveMessagesToLocalStorage = debounce(
@@ -89,13 +104,7 @@ export const chatReducer = (
       
       if (action.payload.messages && action.payload.userId) {
         action.payload.messages.forEach(msg => {
-          const hasNoUser = !msg.user;
-          const isInitialUser = msg.user?.id === 'anonymous' || msg.user?.email === 'anonymous@example.com';
-          const isCurrentUser = 
-            (action.payload.userId !== 'anonymous' && msg.user?.id === action.payload.userId) || 
-            (action.payload.userEmail && msg.user?.email === action.payload.userEmail);
-          
-          msg.isSent = !!(hasNoUser || isInitialUser || isCurrentUser);
+          msg.isSent = shouldMessageBeSent(msg, action.payload.userId, action.payload.userEmail);
         });
       }
       
@@ -122,30 +131,13 @@ export const chatReducer = (
       const newMessage = action.payload.message;
       if (!newMessage) return state;
       
-      const messageExists = state.messages.some(msg => 
-        msg.id === newMessage.id ||
-        (msg.text === newMessage.text &&
-         Math.abs(
-           new Date(msg.created_at).getTime() - 
-           new Date(newMessage.created_at || Date.now()).getTime()
-         ) < 5000)
-      );
+      const messageExists = isMessageDuplicate(newMessage, state.messages);
       
-      if (messageExists) {
-        console.log('[AI Smarttalk DEBUG] REDUCER: Skipping duplicate message:', {
-          id: newMessage.id,
-          text: newMessage.text.substring(0, 20)
-        });
+      if (messageExists) {       
         return state;
       }
       
-      const hasNoUser = !newMessage.user;
-      const isInitialUser = newMessage.user?.id === 'anonymous' || newMessage.user?.email === 'anonymous@example.com';
-      const isCurrentUser = 
-        (action.payload.userId !== 'anonymous' && newMessage.user?.id === action.payload.userId) || 
-        (action.payload.userEmail && newMessage.user?.email === action.payload.userEmail);
-      
-      newMessage.isSent = !!(hasNoUser || isInitialUser || isCurrentUser);
+      newMessage.isSent = shouldMessageBeSent(newMessage, action.payload.userId, action.payload.userEmail);
       
       const updatedMessages = [...state.messages, newMessage];
       debouncedSaveMessagesToLocalStorage(
@@ -175,13 +167,7 @@ export const chatReducer = (
       const message = action.payload.message;
       if (!message) return state;
       
-      const hasNoUserUpdate = !message.user;
-      const isInitialUserUpdate = message.user?.id === 'anonymous' || message.user?.email === 'anonymous@example.com';
-      const isCurrentUserUpdate = 
-        (action.payload.userId !== 'anonymous' && message.user?.id === action.payload.userId) || 
-        (action.payload.userEmail && message.user?.email === action.payload.userEmail);
-      
-      message.isSent = !!(hasNoUserUpdate || isInitialUserUpdate || isCurrentUserUpdate);
+      message.isSent = shouldMessageBeSent(message, action.payload.userId, action.payload.userEmail);
       
       const updatedMessageIndex = state.messages.findIndex(
         (msg) => msg.id === message.id

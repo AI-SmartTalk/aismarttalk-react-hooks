@@ -19,6 +19,7 @@ import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
 import useChatInstance from "./useChatInstance";
+import { shouldMessageBeSent } from "../utils/messageUtils";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -120,7 +121,6 @@ export const useChatMessages = ({
           const currentUserId = data.connectedOrAnonymousUser?.id || user?.id;
 
           const processedMessages = apiMessages.map((message: any) => {
-            const isUserMessage = message.userId === currentUserId;
             return {
               id: message.id,
               text: message.text,
@@ -128,7 +128,7 @@ export const useChatMessages = ({
               created_at: message.created_at,
               updated_at: message.updated_at,
               user: message.user,
-              isSent: Boolean(isUserMessage),
+              isSent: shouldMessageBeSent(message, currentUserId, data.connectedOrAnonymousUser?.email || user?.email),
             };
           });
 
@@ -228,8 +228,6 @@ export const useChatMessages = ({
           data.connectedOrAnonymousUser?.id || user?.id || "anonymous";
 
         const updatedMessages = apiMessages.map((message: any) => {
-          const isUserMessage = message.userId === currentUserId;
-
           return {
             id: message.id,
             text: message.text,
@@ -237,7 +235,7 @@ export const useChatMessages = ({
             created_at: message.created_at,
             updated_at: message.updated_at,
             user: message.user,
-            isSent: Boolean(isUserMessage),
+            isSent: shouldMessageBeSent(message, currentUserId, user?.email),
           };
         });
 
@@ -410,7 +408,7 @@ export const useChatMessages = ({
     const userMessage: FrontChatMessage = {
       id: messageId,
       text: messageText,
-      isSent: true,
+      isSent: false,
       chatInstanceId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -421,6 +419,9 @@ export const useChatMessages = ({
         image: user.image ?? "",
       },
     };
+    
+    // Utiliser la fonction utilitaire pour déterminer si le message doit être marqué comme envoyé
+    userMessage.isSent = shouldMessageBeSent(userMessage, user.id, user.email);
 
     addMessage(userMessage);
 
@@ -478,7 +479,13 @@ export const useChatMessages = ({
       saveConversationHistory(
         chatInstanceId,
         chatTitle || userMessage.text.slice(0, 50),
-        updatedMessages
+        updatedMessages,
+        {
+          id: user.id ?? '',
+          email: user.email ?? '',
+          name: user.name ?? '',
+          image: user.image ?? ''
+        }
       );
 
       setConversations((prev) => {
@@ -573,7 +580,13 @@ export const useChatMessages = ({
           saveConversationHistory(
             targetInstanceId,
             newTitle,
-            storedHistory.messages
+            storedHistory.messages,
+            {
+              id: user.id ?? '',
+              email: user.email ?? '',
+              name: user.name ?? '',
+              image: user.image ?? ''
+            }
           );
         } else {
           // If we can't find conversation history but we have current messages
@@ -581,7 +594,17 @@ export const useChatMessages = ({
             targetInstanceId === chatInstanceId &&
             state.messages.length > 0
           ) {
-            saveConversationHistory(targetInstanceId, newTitle, state.messages);
+            saveConversationHistory(
+              targetInstanceId, 
+              newTitle, 
+              state.messages,
+              {
+                id: user.id ?? '',
+                email: user.email ?? '',
+                name: user.name ?? '',
+                image: user.image ?? ''
+              }
+            );
           }
         }
       } catch (e) {
@@ -676,7 +699,17 @@ export const useChatMessages = ({
         return updated;
       });
 
-      saveConversationHistory(newInstanceId, defaultTitle, []);
+      saveConversationHistory(
+        newInstanceId, 
+        defaultTitle, 
+        [],
+        {
+          id: user.id ?? '',
+          email: user.email ?? '',
+          name: user.name ?? '',
+          image: user.image ?? ''
+        }
+      );
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -744,7 +777,12 @@ export const useChatMessages = ({
     conversations,
     setConversations,
     saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
-      saveConversationHistory(chatInstanceId, title, messages),
+      saveConversationHistory(chatInstanceId, title, messages, {
+        id: user.id ?? '',
+        email: user.email ?? '',
+        name: user.name ?? '',
+        image: user.image ?? ''
+      }),
     canvas: canvasHistory.canvas,
     canvasHistory,
     isLoading: state.isLoading,
