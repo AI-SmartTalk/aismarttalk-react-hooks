@@ -67,6 +67,14 @@ export const useChatInstance = ({
   }, [storageKey]);
 
   const initializeChatInstance = async () => {
+    if (isChanging) {
+      console.log("Initialization already in progress, skipping");
+      return;
+    }
+
+    console.log("Initializing chat instance");
+    setIsChanging(true);
+    
     try {
       await cleanup();
       
