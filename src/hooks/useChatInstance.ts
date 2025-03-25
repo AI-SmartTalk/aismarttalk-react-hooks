@@ -61,21 +61,17 @@ export const useChatInstance = ({
     } catch (err) {
       console.error('Error cleaning up localStorage:', err);
     }
-    setIsChanging(true);
     // Give time for consumers to cleanup their sockets
     return new Promise(resolve => setTimeout(resolve, 100));
   }, [storageKey]);
 
-  const initializeChatInstance = async () => {
-    if (isChanging) {
-      console.log("Initialization already in progress, skipping");
-      return;
-    }
-
-    console.log("Initializing chat instance");
-    setIsChanging(true);
-    
+  const initializeChatInstance = async () => {   
     try {
+      if (isChanging) {
+        return;
+      }
+  
+      setIsChanging(true);
       await cleanup();
       
       const headers: Record<string, string> = {
