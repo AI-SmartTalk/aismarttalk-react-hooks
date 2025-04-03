@@ -75,7 +75,7 @@ export const useChatMessages = ({
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const { chatInstanceId, setChatInstanceId, getNewInstance } = useChatInstance(
-    { chatModelId, lang, config, isAdmin: isAdmin }
+    { chatModelId, lang, config, isAdmin: isAdmin, user }
   );
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
