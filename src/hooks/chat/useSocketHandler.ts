@@ -17,7 +17,7 @@ import {
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
-import { shouldMessageBeSent, isMessageDuplicate } from "../../utils/messageUtils";
+import { isMessageDuplicate } from "../../utils/messageUtils";
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -39,26 +39,6 @@ export const useSocketHandler = (
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
-  const fetchInProgressRef = useRef<boolean>(false);
-  const userIdRef = useRef<string>(user?.id || "anonymous");
-
-  const stableFetchMessages = useCallback(() => {
-    // Prevent concurrent fetches - only one fetch can run at a time
-    if (fetchInProgressRef.current) {
-      return;
-    }
-
-    // Set fetch in progress flag
-    fetchInProgressRef.current = true;
-
-    // Call the actual fetch function
-    fetchMessagesFromApi();
-
-    // Reset the flag after a short delay to allow for race condition recovery
-    setTimeout(() => {
-      fetchInProgressRef.current = false;
-    }, 500);
-  }, [fetchMessagesFromApi]);
 
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
@@ -71,7 +51,6 @@ export const useSocketHandler = (
         socketRef.current = null;
       }
       currentInstanceRef.current = chatInstanceId;
-      // Reset message received flag on instance change
       lastMessageReceivedRef.current = 0;
     }
   }, [chatInstanceId]);
@@ -93,37 +72,8 @@ export const useSocketHandler = (
       socketRef.current = null;
     }
 
-    // Update the userIdRef with current user ID
-    userIdRef.current = user.id || initialUser.id || "anonymous";
-
-    // CRITICAL FIX: For anonymous users, ensure all their messages are marked as sent
-    if (user.id === "anonymous") {
-      // Find any messages from this user that aren't marked as sent
-      const messagesToFix = messages.filter(
-        (msg) =>
-          (msg.user?.id === "anonymous" ||
-            msg.user?.email === "anonymous@example.com") &&
-          !msg.isSent
-      );
-
-      if (messagesToFix.length > 0) {
-        // Update each message to ensure it's marked as sent
-        messagesToFix.forEach((msg) => {
-          dispatch({
-            type: ChatActionTypes.UPDATE_MESSAGE,
-            payload: {
-              message: {
-                ...msg,
-                isSent: true,
-              },
-              chatInstanceId,
-              userId: user.id,
-              userEmail: user.email,
-            },
-          });
-        });
-      }
-    }
+    // Set initial value of lastMessageReceivedRef to now, to prevent immediate API fetches
+    lastMessageReceivedRef.current = Date.now();
 
     const socket = socketIOClient(finalWsUrl, {
       query: {
@@ -134,53 +84,47 @@ export const useSocketHandler = (
       },
       forceNew: true,
       reconnection: false, // Disable auto-reconnection
+      timeout: 20000,
     });
 
     socketRef.current = socket;
-    // Add a custom property to track last message time
     socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
+    socketRef.current.lastMessageReceivedRef = lastMessageReceivedRef;
 
     socket.on("connect_error", (err) => {
       console.error("Socket connection error:", err);
       setSocketStatus("error");
     });
 
-    socket.on("reconnect_failed", () => {
-      console.error("Socket reconnect failed:", { url: finalWsUrl });
-      setSocketStatus("failed");
-    });
-
     socket.on("connect", () => {
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
-
-      // Check if we've received a message very recently (within 2 seconds)
-      // If so, we can skip the initial fetch to avoid flickering
-      const timeSinceLastMessage = Date.now() - lastMessageReceivedRef.current;
-      if (timeSinceLastMessage > 2000) {
-        stableFetchMessages();
+      
+      // ONLY fetch if we have absolutely no messages - never fetch on reconnect
+      if (messages.length === 0) {
+        console.log("[AISmarttalk Socket] Initial connection, fetching messages");
+        fetchMessagesFromApi();
       }
     });
 
-    socket.on("disconnect", (reason) => {
+    socket.on("disconnect", () => {
       setSocketStatus("disconnected");
     });
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
-        // Update the lastMessageReceivedRef timestamp when we receive a message
-        lastMessageReceivedRef.current = Date.now();
-        // Also update our custom property for external access
-        socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
+        // Update timestamp BEFORE processing
+        const now = Date.now();
+        lastMessageReceivedRef.current = now;
+        socketRef.current._lastMessageTime = now;
         
-        // Utiliser la fonction utilitaire pour détecter les doublons
-        const isDuplicate = isMessageDuplicate(data.message, messages);
-        
-        if (isDuplicate) {          
-          return; // Skip duplicate messages
+        // Skip duplicate messages
+        if (isMessageDuplicate(data.message, messages)) {
+          console.log("[AISmarttalk Socket] Skipping duplicate message:", data.message.id);
+          return;
         }
         
-        // Use these consistent checks to determine if the message is from the current user
+        // Determine if message is from current user
         const isCurrentUser = 
           (user.id && user.id !== "anonymous" && data.message.user?.id === user.id) || 
           (user.email && data.message.user?.email === user.email);
@@ -190,16 +134,13 @@ export const useSocketHandler = (
           (data.message.user?.id === "anonymous" || 
            data.message.user?.email === "anonymous@example.com");
         
-        // Combine all checks to determine if message should be marked as sent
-        const shouldBeSent = isCurrentUser || isAnonymousUser;
-        
-        // Add the message with the correct isSent value
+        // Add message
         dispatch({
           type: ChatActionTypes.ADD_MESSAGE,
           payload: {
             message: {
               ...data.message,
-              isSent: shouldBeSent,
+              isSent: isCurrentUser || isAnonymousUser,
             },
             chatInstanceId,
             userId: user.id,
@@ -240,14 +181,9 @@ export const useSocketHandler = (
           // Ensure we create a complete user object with token
           const finalUser: User = {
             ...data.user,
-            token: data.token, // Make sure token is set here
-            id: data.user.id || `user-${data.user.email.split("@")[0]}`, // Ensure ID is set
+            token: data.token,
+            id: data.user.id || `user-${data.user.email.split("@")[0]}`,
           };
-
-          // Log the constructed user to help debug
-
-          // Store the userID to detect changes
-          userIdRef.current = finalUser.id || initialUser.id || "anonymous";
 
           // Update user with the token
           setUser(finalUser);
@@ -262,12 +198,8 @@ export const useSocketHandler = (
             );
           }
 
-          // Need to reconnect the socket with the new user credentials
-
           // Close the current socket
           socket.disconnect();
-
-          // We'll reconnect in the next useEffect cycle with the new user credentials
         } else {
           console.error(
             "[AI Smarttalk] Invalid user data from otp-login, missing token or user data"
@@ -299,10 +231,6 @@ export const useSocketHandler = (
         canvasHistory.updateLineRange(start, end, lines);
       }
     );
-
-    socket.on("reconnect_attempt", () => {
-      setSocketStatus("connecting");
-    });
 
     return () => {
       if (socket) {
