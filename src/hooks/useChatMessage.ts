@@ -6,7 +6,7 @@ import {
   initialChatState,
 } from "../reducers/chatReducers";
 import { ChatHistoryItem, CTADTO, FrontChatMessage } from "../types/chat";
-import { UseChatMessagesOptions } from "../types/chatConfig";
+import { ChatError, ChatErrorType, UseChatMessagesOptions } from "../types/chatConfig";
 import { defaultApiUrl, defaultWsUrl } from "../types/config";
 import { Tool } from "../types/tools";
 import { TypingUser } from "../types/typingUsers";
@@ -37,7 +37,7 @@ import { shouldMessageBeSent } from "../utils/messageUtils";
  * @returns {FrontChatMessage[]} returns.messages - Array of chat messages
  * @returns {number} returns.notificationCount - Number of unread notifications
  * @returns {string[]} returns.suggestions - Message suggestions
- * @returns {string|null} returns.error - Error message if any
+ * @returns {ChatError} returns.error - Error information
  * @returns {Function} returns.setMessages - Function to set messages
  * @returns {Function} returns.setNotificationCount - Function to update notification count
  * @returns {Function} returns.updateSuggestions - Function to update suggestions
@@ -86,7 +86,78 @@ export const useChatMessages = ({
   const [chatTitle, setChatTitle] = useState<string>("");
   const [conversations, setConversations] = useState<ChatHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorType, setErrorType] = useState<ChatErrorType | null>(null);
+  const [errorCode, setErrorCode] = useState<number | null>(null);
   const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * Handle API errors centrally and provide detailed error information
+   * 
+   * @param statusCode HTTP status code from response
+   * @param defaultMessage Default error message
+   * @returns Object with message, errorType and statusCode for consistent error handling
+   */
+  const handleApiError = useCallback((statusCode: number, defaultMessage: string) => {
+    let message = defaultMessage;
+    let errorType: ChatErrorType = "unknown";
+    
+    switch (statusCode) {
+      case 401:
+        message = "Unauthorized: You need to login to access this chat.";
+        errorType = "auth";
+        break;
+      case 403:
+        message = "Forbidden: You don't have permission to access this chat.";
+        errorType = "permission";
+        break;
+      case 429:
+        message = "Too many requests. Please wait before trying again.";
+        errorType = "rate_limit";
+        break;
+      case 400:
+        message = "Bad request. There might be an issue with your chat configuration.";
+        errorType = "validation";
+        break;
+      case 404:
+        message = "Chat not found. The conversation may have been deleted.";
+        errorType = "not_found";
+        break;
+      case 500:
+      case 502:
+      case 503:
+      case 504:
+        message = "Server error. Please contact your administrator for assistance.";
+        errorType = "server";
+        break;
+      default:
+        if (statusCode >= 500) {
+          errorType = "server";
+        } else if (statusCode >= 400) {
+          errorType = "client";
+        } else {
+          errorType = "unknown";
+        }
+    }
+    
+    setError(message);
+    setErrorType(errorType);
+    setErrorCode(statusCode);
+    
+    return { message, errorType, statusCode };
+  }, []);
+  
+  // Clear all error states
+  const clearError = useCallback(() => {
+    setError(null);
+    setErrorType(null);
+    setErrorCode(null);
+  }, []);
+
+  const setApiError = useCallback((message: string, type: ChatErrorType = "unknown", code: number | null = null) => {
+    setError(message);
+    setErrorType(type);
+    setErrorCode(code);
+  }, []);
 
   const selectConversation = useCallback(
     async (id: string | undefined) => {
@@ -111,8 +182,12 @@ export const useChatMessages = ({
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch messages: ${response.status}`);
+          handleApiError(response.status, `Failed to fetch messages: ${response.status}`);
+          return;
         }
+
+        // Clear any errors upon successful conversation selection
+        clearError();
 
         const data = await response.json();
 
@@ -139,10 +214,14 @@ export const useChatMessages = ({
         }
       } catch (error) {
         console.error("Error selecting conversation:", error);
-        setError(error instanceof Error ? error.message : "Unknown error");
+        
+        // Handle network errors or other non-HTTP errors
+        setError(error instanceof Error ? error.message : "Unknown error selecting conversation");
+        setErrorType("network");
+        setErrorCode(null);
       }
     },
-    [chatModelId, finalApiUrl, finalApiToken, storageKey]
+    [chatModelId, finalApiUrl, finalApiToken, storageKey, handleApiError, clearError]
   );
 
   useEffect(() => {
@@ -178,6 +257,13 @@ export const useChatMessages = ({
       return;
     }
 
+    // Skip API fetch if messages were received very recently (within last 2 seconds)
+    // This helps prevent flickering when messages arrive via websocket
+    const timeSinceLastMessage = Date.now() - (socketRef.current?._lastMessageTime || 0);
+    if (timeSinceLastMessage < 2000 && state.messages.length > 0) {
+      return;
+    }
+
     try {
       dispatch({
         type: ChatActionTypes.SET_LOADING,
@@ -202,8 +288,12 @@ export const useChatMessages = ({
         return;
       }
 
-      if (response.status === 429) {
-        setError("Trop de requêtes. Veuillez patienter avant de réessayer.");
+      // Handle non-ok responses with our centralized error handler
+      if (!response.ok) {
+        handleApiError(
+          response.status, 
+          `Error fetching messages: ${response.status}`
+        );
         dispatch({
           type: ChatActionTypes.SET_LOADING,
           payload: { isLoading: false },
@@ -222,12 +312,53 @@ export const useChatMessages = ({
         return;
       }
 
+      // Clear any errors upon successful fetching
+      clearError();
+
       const apiMessages = data.messages || [];
       if (apiMessages?.length > 0) {
         const currentUserId =
           data.connectedOrAnonymousUser?.id || user?.id || "anonymous";
 
+        // Create a map of existing messages by ID for faster lookup
+        const existingMessagesMap = new Map(
+          state.messages.map(msg => [msg.id, msg])
+        );
+        
+        // Create a map of temporary messages by text+user for potential matching
+        const tempMessagesMap = new Map();
+        state.messages.forEach(msg => {
+          if (msg.id.startsWith('temp-')) {
+            const key = `${msg.text}|${msg.user?.id || 'unknown'}`;
+            tempMessagesMap.set(key, msg);
+          }
+        });
+        
         const updatedMessages = apiMessages.map((message: any) => {
+          // First check if this message already exists by ID
+          const existingMessage = existingMessagesMap.get(message.id);
+          if (existingMessage) {
+            // Preserve the isSent value from the existing message
+            return {
+              ...message,
+              chatInstanceId: currentInstanceId,
+              isSent: existingMessage.isSent,
+            };
+          }
+          
+          // Then check if this message matches a temporary message
+          const tempKey = `${message.text}|${message.user?.id || 'unknown'}`;
+          const matchingTempMessage = tempMessagesMap.get(tempKey);
+          if (matchingTempMessage) {
+            // Use the temporary message's isSent value
+            return {
+              ...message,
+              chatInstanceId: currentInstanceId,
+              isSent: matchingTempMessage.isSent,
+            };
+          }
+          
+          // Otherwise, calculate the isSent value
           return {
             id: message.id,
             text: message.text,
@@ -244,9 +375,10 @@ export const useChatMessages = ({
           payload: {
             chatInstanceId: currentInstanceId,
             messages: updatedMessages,
+            userId: currentUserId,
+            userEmail: user?.email,
           },
         });
-        setError(null);
       }
     } catch (err: any) {
       setError("Erreur lors de la récupération des messages : " + err.message);
@@ -257,7 +389,7 @@ export const useChatMessages = ({
         payload: { isLoading: false },
       });
     }
-  }, [finalApiUrl, finalApiToken, chatInstanceId]);
+  }, [finalApiUrl, finalApiToken, chatInstanceId, state.messages, user]);
 
   const { addMessage } = useMessageHandler(
     chatInstanceId,
@@ -467,9 +599,27 @@ export const useChatMessages = ({
       });
 
       if (!response.ok) {
+        // Use the centralized error handler for API errors
+        const { message, errorType, statusCode } = handleApiError(
+          response.status, 
+          `Error sending message: ${response.status}`
+        );
+        
         showTemporaryToolState("Error", "error");
-        throw new Error(`HTTP error! status: ${response.status}`);
+        
+        // Remove the temporary message if there was an error
+        dispatch({
+          type: ChatActionTypes.SET_MESSAGES,
+          payload: {
+            chatInstanceId,
+            messages: state.messages.filter((msg) => msg.id !== userMessage.id),
+          },
+        });
+        throw new Error(`${errorType} error (${statusCode}): ${message}`);
       }
+
+      // Clear any previous errors upon successful message send
+      clearError();
 
       const data = await response.json();
       const { message } = data;
@@ -668,6 +818,9 @@ export const useChatMessages = ({
       const newInstanceId = await getNewInstance();
 
       if (!newInstanceId) {
+        setError("Failed to create new chat instance");
+        setErrorType("server");
+        setErrorCode(500);
         console.error("Failed to create new chat instance");
         return null;
       }
@@ -711,15 +864,21 @@ export const useChatMessages = ({
         }
       );
 
+      // Clear any previous errors when creating a new chat successfully
+      clearError();
+
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       return newInstanceId;
     } catch (error) {
       console.error("Error creating new chat:", error);
-      setError(error instanceof Error ? error.message : "Unknown error");
+      // Handle the error with detailed information for developers
+      setError(error instanceof Error ? error.message : "Unknown error creating chat");
+      setErrorType("server");
+      setErrorCode(error instanceof Response ? error.status : null);
       return null;
     }
-  }, [chatModelId, dispatch, storageKey]);
+  }, [chatModelId, dispatch, storageKey, clearError]);
 
   useEffect(() => {
     if (state.messages.length > 0) {
@@ -751,7 +910,14 @@ export const useChatMessages = ({
     messages: state.messages,
     notificationCount: state.notificationCount,
     suggestions: state.suggestions,
-    error,
+    // Enhanced error information for developers
+    error: {
+      message: error,
+      type: errorType,
+      code: errorCode
+    } as ChatError,
+    clearError,
+    setError: setApiError,
     setMessages: (messages: FrontChatMessage[]) =>
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,

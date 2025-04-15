@@ -137,6 +137,8 @@ export const useSocketHandler = (
     });
 
     socketRef.current = socket;
+    // Add a custom property to track last message time
+    socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
 
     socket.on("connect_error", (err) => {
       console.error("Socket connection error:", err);
@@ -166,6 +168,11 @@ export const useSocketHandler = (
 
     socket.on("chat-message", (data) => {
       if (data.chatInstanceId === chatInstanceId) {
+        // Update the lastMessageReceivedRef timestamp when we receive a message
+        lastMessageReceivedRef.current = Date.now();
+        // Also update our custom property for external access
+        socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
+        
         // Utiliser la fonction utilitaire pour détecter les doublons
         const isDuplicate = isMessageDuplicate(data.message, messages);
         

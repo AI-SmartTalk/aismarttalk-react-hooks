@@ -104,17 +104,62 @@ export const chatReducer = (
       
       if (action.payload.messages && action.payload.userId) {
         action.payload.messages.forEach(msg => {
-          msg.isSent = shouldMessageBeSent(msg, action.payload.userId, action.payload.userEmail);
+          if (!msg.isSent) { // Only set isSent if it's not already set
+            msg.isSent = shouldMessageBeSent(msg, action.payload.userId, action.payload.userEmail);
+          }
         });
       }
       
       if (state.messages.length > 0 && action.payload.messages?.length) {
+        // Create a map of existing messages by ID for faster lookup
         const existingMessages = new Map(state.messages.map(msg => [msg.id, msg]));
+        
+        // Also create a map of temporary messages by text+user for matching
+        const tempMessages = new Map();
+        state.messages.forEach(msg => {
+          if (msg.id.startsWith('temp-')) {
+            const key = `${msg.text}|${msg.user?.id || 'unknown'}`;
+            tempMessages.set(key, msg);
+          }
+        });
+        
         const newMessages = action.payload.messages;
         
+        // First process all non-temporary messages from new set
         newMessages.forEach(msg => {
+          if (msg.id.startsWith('temp-')) return; // Skip temp messages for now
+          
           const existing = existingMessages.get(msg.id);
-          if (!existing || new Date(msg.updated_at) > new Date(existing.updated_at)) {
+          if (!existing) {
+            // New message, add it
+            existingMessages.set(msg.id, msg);
+          } else if (new Date(msg.updated_at) > new Date(existing.updated_at)) {
+            // Updated message, but preserve isSent state from existing
+            existingMessages.set(msg.id, {
+              ...msg,
+              isSent: existing.isSent || msg.isSent
+            });
+          }
+        });
+        
+        // Then handle temporary messages, matching them with their permanent versions
+        newMessages.forEach(msg => {
+          if (!msg.id.startsWith('temp-')) return; // Only process temp messages
+          
+          const key = `${msg.text}|${msg.user?.id || 'unknown'}`;
+          
+          // Check if we already have a non-temp version of this message
+          let hasNonTempVersion = false;
+          existingMessages.forEach(existingMsg => {
+            if (!existingMsg.id.startsWith('temp-') && 
+                existingMsg.text === msg.text && 
+                existingMsg.user?.id === msg.user?.id) {
+              hasNonTempVersion = true;
+            }
+          });
+          
+          // If no non-temp version exists, add the temp message
+          if (!hasNonTempVersion) {
             existingMessages.set(msg.id, msg);
           }
         });
