@@ -68,7 +68,8 @@ export const shouldMessageBeSent = (
  * Vérifie si un message est un doublon d'un message existant.
  * Un message est considéré comme un doublon si:
  * 1. Son ID correspond à un message existant OU
- * 2. Son texte et son timing correspondent à un message existant (à 5 secondes près)
+ * 2. Son texte et son timing correspondent à un message existant (à 5 secondes près) OU
+ * 3. Il correspond à un message temporaire qui a le même texte (pour gérer la transition temp -> permanent)
  *
  * @param newMessage Le nouveau message à vérifier
  * @param existingMessages Les messages existants à comparer
@@ -87,6 +88,15 @@ export const isMessageDuplicate = (
         Math.abs(
           new Date(msg.created_at).getTime() -
             new Date(newMessage.created_at || Date.now()).getTime()
-        ) < 5000)
+        ) < 5000) ||
+      // Check if a temporary message with the same text already exists
+      // This helps with deduplication when a temp-id message is replaced by server version
+      (msg.id.startsWith('temp-') && 
+       msg.text === newMessage.text &&
+       msg.user?.id === newMessage.user?.id &&
+       Math.abs(
+          new Date(msg.created_at).getTime() -
+            new Date(newMessage.created_at || Date.now()).getTime()
+        ) < 15000)
   );
 };

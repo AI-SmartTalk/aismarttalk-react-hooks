@@ -173,8 +173,18 @@ export const useSocketHandler = (
           return; // Skip duplicate messages
         }
         
-        // Utiliser la fonction utilitaire pour déterminer si le message doit être marqué comme envoyé
-        const shouldBeSent = shouldMessageBeSent(data.message, user.id, user.email);              
+        // Use these consistent checks to determine if the message is from the current user
+        const isCurrentUser = 
+          (user.id && user.id !== "anonymous" && data.message.user?.id === user.id) || 
+          (user.email && data.message.user?.email === user.email);
+        
+        const isAnonymousUser = 
+          user.id === "anonymous" && 
+          (data.message.user?.id === "anonymous" || 
+           data.message.user?.email === "anonymous@example.com");
+        
+        // Combine all checks to determine if message should be marked as sent
+        const shouldBeSent = isCurrentUser || isAnonymousUser;
         
         // Add the message with the correct isSent value
         dispatch({
@@ -182,7 +192,7 @@ export const useSocketHandler = (
           payload: {
             message: {
               ...data.message,
-              isSent: shouldBeSent, // Apply using the utility function
+              isSent: shouldBeSent,
             },
             chatInstanceId,
             userId: user.id,

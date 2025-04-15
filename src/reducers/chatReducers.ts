@@ -134,6 +134,31 @@ export const chatReducer = (
       const messageExists = isMessageDuplicate(newMessage, state.messages);
       
       if (messageExists) {       
+        // Instead of simply ignoring duplicates, we should update temp messages with server IDs
+        // Find if there's a temp message that matches this one
+        const tempMessageIndex = state.messages.findIndex(
+          msg => msg.id.startsWith('temp-') && 
+                msg.text === newMessage.text &&
+                msg.user?.id === newMessage.user?.id
+        );
+        
+        if (tempMessageIndex >= 0 && !newMessage.id.startsWith('temp-')) {
+          // Replace temp message with server message
+          const updatedMessages = [...state.messages];
+          updatedMessages[tempMessageIndex] = {
+            ...newMessage,
+            isSent: state.messages[tempMessageIndex].isSent || newMessage.isSent // Preserve isSent from temp
+          };
+          
+          debouncedSaveMessagesToLocalStorage(
+            updatedMessages,
+            action.payload.chatInstanceId || ""
+          );
+          
+          return { ...state, messages: updatedMessages };
+        }
+        
+        // If it's a true duplicate, ignore it
         return state;
       }
       

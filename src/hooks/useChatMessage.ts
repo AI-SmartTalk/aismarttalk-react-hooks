@@ -408,7 +408,7 @@ export const useChatMessages = ({
     const userMessage: FrontChatMessage = {
       id: messageId,
       text: messageText,
-      isSent: false,
+      isSent: true, // Always mark messages created by the user through UI as sent
       chatInstanceId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -420,8 +420,8 @@ export const useChatMessages = ({
       },
     };
     
-    // Utiliser la fonction utilitaire pour déterminer si le message doit être marqué comme envoyé
-    userMessage.isSent = shouldMessageBeSent(userMessage, user.id, user.email);
+    // We're setting isSent to true directly, as this is a message from the current user
+    // This ensures immediate visual feedback
 
     addMessage(userMessage);
 
