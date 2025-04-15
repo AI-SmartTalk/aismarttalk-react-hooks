@@ -1,6 +1,9 @@
 import { FrontChatMessage } from "../types/chat";
 import { shouldMessageBeSent, isMessageDuplicate } from "../utils/messageUtils";
-import { saveConversationHistory, loadConversationHistory } from "../utils/localStorageHelpers";
+import {
+  saveConversationHistory,
+  loadConversationHistory,
+} from "../utils/localStorageHelpers";
 
 export enum ChatActionTypes {
   SET_MESSAGES = "SET_MESSAGES",
@@ -10,7 +13,7 @@ export enum ChatActionTypes {
   UPDATE_SUGGESTIONS = "UPDATE_SUGGESTIONS",
   UPDATE_MESSAGE = "UPDATE_MESSAGE",
   UPDATE_TITLE = "UPDATE_TITLE",
-  SET_LOADING = "SET_LOADING"
+  SET_LOADING = "SET_LOADING",
 }
 
 interface ChatState {
@@ -26,17 +29,15 @@ const saveMessagesToLocalStorage = (
   chatInstanceId: string
 ) => {
   try {
-    // Récupérer le titre de la conversation existante s'il existe
     const history = loadConversationHistory(chatInstanceId);
     const title = history?.title || "💬";
-    
-    // Utiliser saveConversationHistory pour s'assurer que les bots ne sont pas propriétaires
-    // Note: Nous n'avons pas accès à l'utilisateur courant ici, donc on ne peut pas le passer en paramètre
-    // Mais saveConversationHistory vérifiera les propriétaires basés sur les messages existants
+
     saveConversationHistory(chatInstanceId, title, messages);
   } catch (error) {
-    console.error("[AI Smarttalk] Error saving messages to localStorage:", error);
-    // Fallback au comportement précédent en cas d'échec
+    console.error(
+      "[AI Smarttalk] Error saving messages to localStorage:",
+      error
+    );
     localStorage.setItem(
       `chatMessages[${chatInstanceId}]`,
       JSON.stringify(messages)
@@ -91,6 +92,7 @@ interface ChatAction {
     userEmail?: string;
     userId?: string;
     isLoading?: boolean;
+    resetMessages?: boolean;
   };
 }
 
@@ -101,44 +103,139 @@ export const chatReducer = (
   switch (action.type) {
     case ChatActionTypes.SET_MESSAGES:
       if (!action.payload.chatInstanceId) return state;
-      
-      if (action.payload.messages && action.payload.userId) {
-        action.payload.messages.forEach(msg => {
-          msg.isSent = shouldMessageBeSent(msg, action.payload.userId, action.payload.userEmail);
+
+      if (!action.payload.messages) {
+        return state;
+      }
+
+      if (action.payload.messages.length === 0 && state.messages.length > 0) {
+        if (action.payload.resetMessages) {
+          return { ...state, messages: [] };
+        }
+
+        return state;
+      }
+
+      if (action.payload.userId) {
+        action.payload.messages.forEach((msg) => {
+          if (!msg.isSent) {
+            msg.isSent = shouldMessageBeSent(
+              msg,
+              action.payload.userId,
+              action.payload.userEmail
+            );
+          }
         });
       }
-      
+
       if (state.messages.length > 0 && action.payload.messages?.length) {
-        const existingMessages = new Map(state.messages.map(msg => [msg.id, msg]));
+        const existingMessages = new Map(
+          state.messages.map((msg) => [msg.id, msg])
+        );
+
+        const tempMessages = new Map();
+        state.messages.forEach((msg) => {
+          if (msg.id.startsWith("temp-")) {
+            const key = `${msg.text}|${msg.user?.id || "unknown"}`;
+            tempMessages.set(key, msg);
+          }
+        });
+
         const newMessages = action.payload.messages;
-        
-        newMessages.forEach(msg => {
+
+        newMessages.forEach((msg) => {
+          if (msg.id.startsWith("temp-")) return;
           const existing = existingMessages.get(msg.id);
-          if (!existing || new Date(msg.updated_at) > new Date(existing.updated_at)) {
+          if (!existing) {
+            existingMessages.set(msg.id, msg);
+          } else if (new Date(msg.updated_at) > new Date(existing.updated_at)) {
+            existingMessages.set(msg.id, {
+              ...msg,
+              isSent: existing.isSent || msg.isSent,
+            });
+          }
+        });
+
+        newMessages.forEach((msg) => {
+          if (!msg.id.startsWith("temp-")) return;
+          const key = `${msg.text}|${msg.user?.id || "unknown"}`;
+
+          let hasNonTempVersion = false;
+          existingMessages.forEach((existingMsg) => {
+            if (
+              !existingMsg.id.startsWith("temp-") &&
+              existingMsg.text === msg.text &&
+              existingMsg.user?.id === msg.user?.id
+            ) {
+              hasNonTempVersion = true;
+            }
+          });
+
+          if (!hasNonTempVersion) {
             existingMessages.set(msg.id, msg);
           }
         });
-        
-        const mergedMessages = Array.from(existingMessages.values())
-          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        
-        return { ...state, messages: mergedMessages.slice(-30) };
+
+        const mergedMessages = Array.from(existingMessages.values()).sort(
+          (a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        );
+
+        const limitedMessages = mergedMessages.slice(-50);
+        debouncedSaveMessagesToLocalStorage(
+          limitedMessages,
+          action.payload.chatInstanceId || ""
+        );
+
+        return { ...state, messages: limitedMessages };
       }
-      
-      return { ...state, messages: action.payload.messages?.slice(-30) || [] };
+
+      debouncedSaveMessagesToLocalStorage(
+        action.payload.messages,
+        action.payload.chatInstanceId || ""
+      );
+
+      return { ...state, messages: action.payload.messages.slice(-50) };
 
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;
       if (!newMessage) return state;
-      
+
       const messageExists = isMessageDuplicate(newMessage, state.messages);
-      
-      if (messageExists) {       
+
+      if (messageExists) {
+        const tempMessageIndex = state.messages.findIndex(
+          (msg) =>
+            msg.id.startsWith("temp-") &&
+            msg.text === newMessage.text &&
+            msg.user?.id === newMessage.user?.id
+        );
+
+        if (tempMessageIndex >= 0 && !newMessage.id.startsWith("temp-")) {
+          const updatedMessages = [...state.messages];
+          updatedMessages[tempMessageIndex] = {
+            ...newMessage,
+            isSent:
+              state.messages[tempMessageIndex].isSent || newMessage.isSent,
+          };
+
+          debouncedSaveMessagesToLocalStorage(
+            updatedMessages,
+            action.payload.chatInstanceId || ""
+          );
+
+          return { ...state, messages: updatedMessages };
+        }
+
         return state;
       }
-      
-      newMessage.isSent = shouldMessageBeSent(newMessage, action.payload.userId, action.payload.userEmail);
-      
+
+      newMessage.isSent = shouldMessageBeSent(
+        newMessage,
+        action.payload.userId,
+        action.payload.userEmail
+      );
+
       const updatedMessages = [...state.messages, newMessage];
       debouncedSaveMessagesToLocalStorage(
         updatedMessages,
@@ -166,9 +263,13 @@ export const chatReducer = (
     case ChatActionTypes.UPDATE_MESSAGE:
       const message = action.payload.message;
       if (!message) return state;
-      
-      message.isSent = shouldMessageBeSent(message, action.payload.userId, action.payload.userEmail);
-      
+
+      message.isSent = shouldMessageBeSent(
+        message,
+        action.payload.userId,
+        action.payload.userEmail
+      );
+
       const updatedMessageIndex = state.messages.findIndex(
         (msg) => msg.id === message.id
       );
@@ -184,7 +285,7 @@ export const chatReducer = (
         );
         return { ...state, messages: updatedMessages };
       }
-      
+
       return {
         ...state,
         messages: [...state.messages, message],
@@ -194,13 +295,12 @@ export const chatReducer = (
       if (!action.payload.chatInstanceId) {
         return { ...state, title: action.payload.title || "💬" };
       }
-      
-      
+
       if (action.payload.title) {
         const key = `chat-${action.payload.chatInstanceId}-title`;
         localStorage.setItem(key, action.payload.title);
       }
-      
+
       return { ...state, title: action.payload.title || "💬" };
 
     case ChatActionTypes.SET_LOADING:

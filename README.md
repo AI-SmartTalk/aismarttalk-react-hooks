@@ -102,6 +102,7 @@ const ChatComponent = () => {
     resetChat,
     socketStatus,
     error,
+    clearError,
     // ... and more
   } = useAISmarttalkChat({
     chatModelId: 'your-model-id',
@@ -115,6 +116,72 @@ const ChatComponent = () => {
 
   return (
     // Your chat UI implementation
+  );
+};
+```
+
+### Using the Enhanced Error Handling System
+
+The 1.5.0 update introduces a comprehensive error handling system that provides structured error information:
+
+```tsx
+import { useAISmarttalkChat } from '@aismarttalk/react-hooks';
+
+const ChatComponent = () => {
+  const { error, clearError, onSend, messages } = useAISmarttalkChat({
+    chatModelId: 'your-model-id',
+    lang: 'en',
+    config: {
+      apiUrl: 'https://aismarttalk.tech',
+      apiToken: 'your-api-token',
+    },
+  });
+
+  // Error contains structured information
+  // error = {
+  //   message: "Unauthorized: You need to login to access this chat.",
+  //   type: "auth",
+  //   code: 401
+  // }
+
+  const renderErrorMessage = () => {
+    if (!error.message) return null;
+    
+    // You can customize UI based on error type
+    switch (error.type) {
+      case 'auth':
+        return (
+          <div className="error auth-error">
+            🔒 {error.message}
+            <button onClick={() => handleLogin()}>Login</button>
+          </div>
+        );
+      case 'permission':
+        return <div className="error permission-error">⛔ {error.message}</div>;
+      case 'rate_limit':
+        return <div className="error rate-limit-error">⏱️ {error.message}</div>;
+      case 'server':
+        return <div className="error server-error">
+          🔧 {error.message}
+          <small>Error code: {error.code}</small>
+        </div>;
+      default:
+        return <div className="error">{error.message}</div>;
+    }
+  };
+
+  return (
+    <div className="chat-container">
+      {renderErrorMessage()}
+      <div className="messages">
+        {messages.map(msg => (
+          <div key={msg.id} className={msg.isSent ? 'sent' : 'received'}>
+            {msg.text}
+          </div>
+        ))}
+      </div>
+      {/* Rest of chat UI */}
+    </div>
   );
 };
 ```
@@ -148,7 +215,79 @@ const ChatInstanceComponent = () => {
 export default ChatInstanceComponent;
 ```
 
+## 🔄 Message Handling Improvements
+
+### Message Deduplication System
+
+Version 1.5.0 implements an intelligent message deduplication system that solves several common issues in real-time chat applications:
+
+1. **Temporary to Permanent Message Transition**
+   - When a user sends a message, it's immediately displayed with a temporary ID
+   - When the WebSocket returns the server-validated message (with a permanent ID), the system smartly replaces the temporary message instead of showing a duplicate
+
+2. **"isSent" Property Calculation**
+   - Messages are now correctly marked as "sent by current user" based on comprehensive identity checks
+   - Works reliably for both authenticated users and anonymous sessions
+   - Prevents UI inconsistencies where your own messages might temporarily appear as coming from someone else
+
+3. **Flickering Prevention**
+   - Intelligent API refresh throttling when messages arrive via WebSocket
+   - Optimized message merging with preservation of user-specific properties
+   - Smart timestamp tracking to avoid unnecessary UI updates
+
+### Example Flow:
+
+```tsx
+// Your component
+const ChatComponent = () => {
+  const { messages, onSend } = useAISmarttalkChat({...config});
+  
+  // When a user sends a message:
+  const handleSend = (text) => {
+    onSend(text);
+    // 1. Message immediately appears in the UI (with temp ID)
+    // 2. Message is sent to the server
+    // 3. Server processes and broadcasts via WebSocket
+    // 4. Hook receives the WebSocket message
+    // 5. Deduplication system identifies and replaces temp message
+    // 6. UI smoothly updates with no duplicates or flickering
+  };
+  
+  return (
+    <div>
+      {messages.map(msg => (
+        <div key={msg.id} className={msg.isSent ? 'sent' : 'received'}>
+          {msg.text}
+        </div>
+      ))}
+      <button onClick={() => handleSend("Hello world!")}>Send</button>
+    </div>
+  );
+};
+```
+
+This deduplication system works behind the scenes without requiring any special handling in your components.
+
 ## 📝 Changelog
+
+### 1.5.0 ✨ Enhanced Error Handling & Message Stability
+- 🛡️ **Comprehensive Error Handling System**
+  - Added structured error information with types (`auth`, `permission`, `rate_limit`, etc.)
+  - Improved HTTP status code handling (401, 403, 429, etc.)
+  - Enhanced error reporting with consistent formatting
+- 🔄 **Message Deduplication & Stability Improvements**
+  - Fixed temporary message duplication when receiving WebSocket responses
+  - Improved handling of message ownership and `isSent` property calculation
+  - Enhanced temporary to permanent message transition for smoother UX
+  - Fixed bug where messages would appear duplicated for a split second when sent
+  - Solved issues with `isSent` property not being correctly calculated for logged-in users
+  - Improved message ID tracking between temporary and permanent versions
+- ⚡ **Performance Optimizations**
+  - Reduced API refresh flickering with better message merging
+  - Added intelligent caching to prevent unnecessary refreshes
+  - Improved WebSocket reconnection logic
+  - Added lastMessageReceivedRef tracking to prevent unnecessary API calls
+  - Enhanced message merging algorithm to preserve UI state during updates
 
 ### 1.4.0 ✨ Introduce useOtpAuth for Login
 - 🔑 Added `useOtpAuth` hook to facilitate user login via OTP.

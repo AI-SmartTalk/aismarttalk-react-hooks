@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
 } from "react";
 import socketIOClient from "socket.io-client";
 import { ChatActionTypes } from "../../reducers/chatReducers";
@@ -17,7 +18,59 @@ import {
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
-import { shouldMessageBeSent, isMessageDuplicate } from "../../utils/messageUtils";
+import { isMessageDuplicate } from "../../utils/messageUtils";
+
+interface SocketLogger {
+  log: (...args: any[]) => void;
+  error: (...args: any[]) => void;
+  warn: (...args: any[]) => void;
+  info: (...args: any[]) => void;
+  debug: (...args: any[]) => void;
+  group: (label: string) => void;
+  groupEnd: () => void;
+}
+
+const createSocketLogger = (enabled: boolean): SocketLogger => {
+  const timestamp = () => new Date().toISOString().split("T")[1].split(".")[0];
+
+  return {
+    log: (...args: any[]) => {
+      if (enabled) {
+        console.log(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    error: (...args: any[]) => {
+      if (enabled) {
+        console.error(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    warn: (...args: any[]) => {
+      if (enabled) {
+        console.warn(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    info: (...args: any[]) => {
+      if (enabled) {
+        console.info(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    debug: (...args: any[]) => {
+      if (enabled) {
+        console.debug(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    group: (label: string) => {
+      if (enabled) {
+        console.group(`[WebSocket][${timestamp()}] ${label}`);
+      }
+    },
+    groupEnd: () => {
+      if (enabled) {
+        console.groupEnd();
+      }
+    },
+  };
+};
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -31,99 +84,107 @@ export const useSocketHandler = (
   setConversationStarters: Dispatch<SetStateAction<CTADTO[]>>,
   setActiveTool: Dispatch<SetStateAction<Tool | null>>,
   setUser: (user: User) => void,
-  fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
-  messages: FrontChatMessage[]
+  messages: FrontChatMessage[],
+  debug: boolean = false
 ): any => {
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
-  const fetchInProgressRef = useRef<boolean>(false);
-  const userIdRef = useRef<string>(user?.id || "anonymous");
+  const reconnectCountRef = useRef<number>(0);
+  const socketEventCountsRef = useRef<Record<string, number>>({});
+  const connectAttemptsRef = useRef<number>(0);
 
-  const stableFetchMessages = useCallback(() => {
-    // Prevent concurrent fetches - only one fetch can run at a time
-    if (fetchInProgressRef.current) {
-      return;
-    }
-
-    // Set fetch in progress flag
-    fetchInProgressRef.current = true;
-
-    // Call the actual fetch function
-    fetchMessagesFromApi();
-
-    // Reset the flag after a short delay to allow for race condition recovery
-    setTimeout(() => {
-      fetchInProgressRef.current = false;
-    }, 500);
-  }, [fetchMessagesFromApi]);
+  const logger = useMemo(() => createSocketLogger(debug), [debug]);
 
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
-  // Force socket cleanup when instance changes
+  const trackEvent = useCallback(
+    (eventName: string) => {
+      if (!debug) return;
+
+      socketEventCountsRef.current[eventName] =
+        (socketEventCountsRef.current[eventName] || 0) + 1;
+      logger.debug(
+        `Event "${eventName}" triggered (count: ${socketEventCountsRef.current[eventName]})`
+      );
+    },
+    [debug, logger]
+  );
+
   useEffect(() => {
     if (currentInstanceRef.current !== chatInstanceId) {
+      logger.group("Chat Instance Changed");
+      logger.log(
+        `Previous: ${currentInstanceRef.current}, New: ${chatInstanceId}`
+      );
+
       if (socketRef.current) {
+        logger.log(
+          "Cleaning up previous socket connection due to instance change"
+        );
+
+        const lastMsgTime = socketRef.current._lastMessageTime || Date.now();
+
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
+
+        lastMessageReceivedRef.current = lastMsgTime;
       }
+
       currentInstanceRef.current = chatInstanceId;
-      // Reset message received flag on instance change
-      lastMessageReceivedRef.current = 0;
+      reconnectCountRef.current = 0;
+      logger.groupEnd();
     }
-  }, [chatInstanceId]);
+  }, [chatInstanceId, logger]);
 
   useEffect(() => {
     if (!chatInstanceId || !chatModelId || !finalApiUrl) {
+      logger.log("Missing required params, not connecting socket", {
+        chatInstanceId: !!chatInstanceId,
+        chatModelId: !!chatModelId,
+        apiUrl: !!finalApiUrl,
+      });
+
       if (socketRef.current) {
+        logger.log("Cleaning up socket due to missing parameters");
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      return;
+      return () => {
+        if (socketRef.current) {
+          socketRef.current.removeAllListeners();
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+      };
     }
 
-    // Always cleanup previous socket if it exists
     if (socketRef.current) {
+      logger.log(
+        "Cleaning up previous socket connection before new connection"
+      );
       socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
 
-    // Update the userIdRef with current user ID
-    userIdRef.current = user.id || initialUser.id || "anonymous";
+    lastMessageReceivedRef.current = Date.now();
+    connectAttemptsRef.current++;
 
-    // CRITICAL FIX: For anonymous users, ensure all their messages are marked as sent
-    if (user.id === "anonymous") {
-      // Find any messages from this user that aren't marked as sent
-      const messagesToFix = messages.filter(
-        (msg) =>
-          (msg.user?.id === "anonymous" ||
-            msg.user?.email === "anonymous@example.com") &&
-          !msg.isSent
-      );
-
-      if (messagesToFix.length > 0) {
-        // Update each message to ensure it's marked as sent
-        messagesToFix.forEach((msg) => {
-          dispatch({
-            type: ChatActionTypes.UPDATE_MESSAGE,
-            payload: {
-              message: {
-                ...msg,
-                isSent: true,
-              },
-              chatInstanceId,
-              userId: user.id,
-              userEmail: user.email,
-            },
-          });
-        });
-      }
-    }
+    logger.group("Socket Connection");
+    logger.log(
+      `Attempt #${connectAttemptsRef.current} - Connecting to: ${finalWsUrl}`
+    );
+    logger.log("Connection parameters:", {
+      chatInstanceId,
+      userId: user.id || initialUser.id,
+      reconnect: false,
+      messages: messages.length,
+    });
 
     const socket = socketIOClient(finalWsUrl, {
       query: {
@@ -133,71 +194,151 @@ export const useSocketHandler = (
         userName: user.name || initialUser.name,
       },
       forceNew: true,
-      reconnection: false, // Disable auto-reconnection
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
     });
 
     socketRef.current = socket;
+    socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
+    socketRef.current.lastMessageReceivedRef = lastMessageReceivedRef;
+    socketRef.current._debug = debug;
+    socketRef.current._connectTime = Date.now();
 
     socket.on("connect_error", (err) => {
-      console.error("Socket connection error:", err);
+      trackEvent("connect_error");
+      logger.error("Socket connection error:", err.message || err);
+      logger.log("Connection details:", {
+        url: finalWsUrl,
+        chatInstanceId,
+        attempt: connectAttemptsRef.current,
+        connectionAge: Date.now() - (socketRef.current?._connectTime || 0),
+      });
       setSocketStatus("error");
     });
 
-    socket.on("reconnect_failed", () => {
-      console.error("Socket reconnect failed:", { url: finalWsUrl });
-      setSocketStatus("failed");
-    });
-
     socket.on("connect", () => {
+      trackEvent("connect");
+      const connectionTime =
+        Date.now() - (socketRef.current?._connectTime || Date.now());
+      logger.log(`Socket connected successfully in ${connectionTime}ms`);
+
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
-
-      // Check if we've received a message very recently (within 2 seconds)
-      // If so, we can skip the initial fetch to avoid flickering
-      const timeSinceLastMessage = Date.now() - lastMessageReceivedRef.current;
-      if (timeSinceLastMessage > 2000) {
-        stableFetchMessages();
-      }
     });
 
     socket.on("disconnect", (reason) => {
+      trackEvent("disconnect");
+      reconnectCountRef.current++;
+
+      logger.group("Socket Disconnected");
+      logger.log(`Reason: ${reason}`);
+      logger.log(`Disconnect #${reconnectCountRef.current}`);
+      logger.log(
+        "Socket lifetime:",
+        `${(Date.now() - socketRef.current?._connectTime) / 1000}s`
+      );
+      logger.log("Connection info:", {
+        messagesReceived: socketEventCountsRef.current["chat-message"] || 0,
+        lastMessageTime: lastMessageReceivedRef.current
+          ? new Date(lastMessageReceivedRef.current).toISOString()
+          : "none",
+        currentMessages: messages.length,
+      });
+      logger.groupEnd();
+
       setSocketStatus("disconnected");
     });
 
+    socket.io.on("reconnect_attempt", (attemptNumber) => {
+      logger.log(`Reconnection attempt #${attemptNumber}`);
+      setSocketStatus("reconnecting");
+    });
+
+    socket.io.on("reconnect", () => {
+      logger.log("Socket reconnected successfully");
+      socket.emit("join", { chatInstanceId });
+      setSocketStatus("connected");
+    });
+
+    socket.io.on("reconnect_failed", () => {
+      logger.error("Socket reconnection failed after max attempts");
+      setSocketStatus("error");
+    });
+
     socket.on("chat-message", (data) => {
+      trackEvent("chat-message");
+
       if (data.chatInstanceId === chatInstanceId) {
-        // Utiliser la fonction utilitaire pour détecter les doublons
-        const isDuplicate = isMessageDuplicate(data.message, messages);
-        
-        if (isDuplicate) {          
-          return; // Skip duplicate messages
+        logger.group("Message Received");
+        logger.log("Message:", {
+          id: data.message?.id,
+          text: data.message?.text?.substring(0, 30) + "...",
+          fromUser: data.message?.user?.id === user.id,
+        });
+
+        const now = Date.now();
+        lastMessageReceivedRef.current = now;
+        socketRef.current._lastMessageTime = now;
+
+        if (isMessageDuplicate(data.message, messages)) {
+          logger.log("Skipping duplicate message:", data.message?.id);
+          logger.groupEnd();
+          return;
         }
-        
-        // Utiliser la fonction utilitaire pour déterminer si le message doit être marqué comme envoyé
-        const shouldBeSent = shouldMessageBeSent(data.message, user.id, user.email);              
-        
-        // Add the message with the correct isSent value
+
+        const isCurrentUser =
+          (user.id &&
+            user.id !== "anonymous" &&
+            data.message.user?.id === user.id) ||
+          (user.email && data.message.user?.email === user.email);
+
+        const isAnonymousUser =
+          user.id === "anonymous" &&
+          (data.message.user?.id === "anonymous" ||
+            data.message.user?.email === "anonymous@example.com");
+
+        logger.log(
+          "Processing message with isSent:",
+          isCurrentUser || isAnonymousUser
+        );
+
         dispatch({
           type: ChatActionTypes.ADD_MESSAGE,
           payload: {
             message: {
               ...data.message,
-              isSent: shouldBeSent, // Apply using the utility function
+              isSent: isCurrentUser || isAnonymousUser,
             },
             chatInstanceId,
             userId: user.id,
             userEmail: user.email,
           },
         });
+
+        logger.log("Message processing complete");
+        logger.groupEnd();
+      } else {
+        logger.log("Ignoring message for different chat instance", {
+          messageFor: data.chatInstanceId,
+          current: chatInstanceId,
+        });
       }
     });
 
     socket.on("user-typing", (data: TypingUser) => {
+      trackEvent("user-typing");
       stableTypingUpdate(data);
     });
 
     socket.on("update-suggestions", (data) => {
+      trackEvent("update-suggestions");
       if (data.chatInstanceId === chatInstanceId) {
+        logger.log("Received suggestions update", {
+          count: data.suggestions?.length || 0,
+        });
         saveSuggestions(chatInstanceId, data.suggestions);
         dispatch({
           type: ChatActionTypes.UPDATE_SUGGESTIONS,
@@ -207,10 +348,14 @@ export const useSocketHandler = (
     });
 
     socket.on("conversation-starters", (data) => {
+      trackEvent("conversation-starters");
       if (
         data.chatInstanceId === chatInstanceId &&
         data.conversationStarters?.length
       ) {
+        logger.log("Received conversation starters", {
+          count: data.conversationStarters.length,
+        });
         setConversationStarters(data.conversationStarters);
         saveConversationStarters(chatModelId, data.conversationStarters);
       }
@@ -219,52 +364,54 @@ export const useSocketHandler = (
     socket.on(
       "otp-login",
       (data: { chatInstanceId: string; user: User; token: string }) => {
+        trackEvent("otp-login");
+        logger.group("OTP Login");
+
         if (data.user && data.token) {
-          // Ensure we create a complete user object with token
           const finalUser: User = {
             ...data.user,
-            token: data.token, // Make sure token is set here
-            id: data.user.id || `user-${data.user.email.split("@")[0]}`, // Ensure ID is set
+            token: data.token,
+            id: data.user.id || `user-${data.user.email.split("@")[0]}`,
           };
 
-          // Log the constructed user to help debug
+          logger.log("Received user token", {
+            email: finalUser.email,
+            id: finalUser.id,
+          });
 
-          // Store the userID to detect changes
-          userIdRef.current = finalUser.id || initialUser.id || "anonymous";
-
-          // Update user with the token
           setUser(finalUser);
 
-          // Store directly to localStorage as backup in case setUser doesn't persist
           try {
             localStorage.setItem("user", JSON.stringify(finalUser));
+            logger.log("User saved to localStorage");
           } catch (err) {
-            console.error(
-              "[AI Smarttalk] Failed to store user in localStorage:",
-              err
-            );
+            logger.error("Failed to store user in localStorage:", err);
           }
 
-          // Need to reconnect the socket with the new user credentials
-
-          // Close the current socket
-          socket.disconnect();
-
-          // We'll reconnect in the next useEffect cycle with the new user credentials
-        } else {
-          console.error(
-            "[AI Smarttalk] Invalid user data from otp-login, missing token or user data"
+          logger.log(
+            "Disconnecting socket to reconnect with new user credentials"
           );
-          // If we don't have both user and token, keep user as anonymous
+          socket.disconnect();
+        } else {
+          logger.error(
+            "Invalid user data from otp-login, missing token or user data"
+          );
           setUser({ ...initialUser });
           localStorage.removeItem("user");
         }
+
+        logger.groupEnd();
       }
     );
 
-    socket.on("tool-run-start", (data: Tool) => setActiveTool(data));
+    socket.on("tool-run-start", (data: Tool) => {
+      trackEvent("tool-run-start");
+      logger.log("Tool started:", data.name);
+      setActiveTool(data);
+    });
 
     socket.on("canvas:update", (canvas: Canvas) => {
+      trackEvent("canvas:update");
       canvasHistory.updateCanvas(canvas);
     });
 
@@ -279,22 +426,35 @@ export const useSocketHandler = (
         end: number;
         lines: string[];
       }) => {
+        trackEvent("canvas:line-update");
         canvasHistory.updateLineRange(start, end, lines);
       }
     );
 
-    socket.on("reconnect_attempt", () => {
-      setSocketStatus("connecting");
+    socket.onAny((event) => {
+      if (debug) {
+        logger.debug(`Socket event: ${event}`);
+      }
     });
+
+    logger.log("Socket setup complete, waiting for connection events");
+    logger.groupEnd();
 
     return () => {
       if (socket) {
+        logger.log("Cleaning up socket on unmount/effect cleanup");
+        logger.log(
+          "Socket lifetime:",
+          `${(Date.now() - socketRef.current?._connectTime) / 1000}s`
+        );
+        logger.log("Events received:", socketEventCountsRef.current);
+
         socket.removeAllListeners();
         socket.disconnect();
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]);
+  }, [chatInstanceId, chatModelId, finalWsUrl]);
 
   return socketRef;
 };
