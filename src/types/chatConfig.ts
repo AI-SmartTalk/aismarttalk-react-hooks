@@ -1,8 +1,11 @@
 import { User } from "./users";
 
 export interface ChatFeatures {
-  smartadmin: boolean;
-  canva: boolean;
+  canvasEnabled?: boolean;
+  smartadmin?: boolean;
+  suggestions?: boolean;
+  uploadEnabled?: boolean;
+  fileList?: boolean;
 }
 
 export interface ChatConfig {
@@ -12,11 +15,15 @@ export interface ChatConfig {
   apiToken?: string;
   features?: ChatFeatures;
   user?: User;
+  debug?: boolean;
 }
 
 export const defaultFeatures: ChatFeatures = {
+  canvasEnabled: true,
   smartadmin: false,
-  canva: false,
+  suggestions: true,
+  uploadEnabled: true,
+  fileList: true,
 };
 
 /**
@@ -24,15 +31,16 @@ export const defaultFeatures: ChatFeatures = {
  * Used to categorize errors for consistent handling
  */
 export type ChatErrorType = 
-  | 'auth'        // Authentication failures (401)
-  | 'permission'  // Permission issues (403)
-  | 'rate_limit'  // Rate limiting (429)
-  | 'validation'  // Request validation failures (400)
-  | 'not_found'   // Resource not found (404) 
-  | 'server'      // Server-side errors (500, 502, 503, 504)
-  | 'network'     // Network connectivity issues
-  | 'client'      // Other client errors
-  | 'unknown';    // Uncategorized errors
+  | "auth"        // Authentication failures (401)
+  | "permission"  // Permission issues (403)
+  | "rate_limit"  // Rate limiting (429)
+  | "validation"  // Request validation failures (400)
+  | "not_found"   // Resource not found (404) 
+  | "server"      // Server-side errors (500, 502, 503, 504)
+  | "network"     // Network connectivity issues
+  | "client"      // Other client errors
+  | "api-error"   // API-specific errors
+  | "unknown";    // Uncategorized errors
 
 /**
  * Structured error information returned by the hook
@@ -53,6 +61,7 @@ export interface UseChatMessagesOptions {
   user: User;
   setUser: (user: User) => void;
   config?: ChatConfig;
-  lang: string;
+  lang?: string;
   isAdmin?: boolean;
+  debug?: boolean;
 }

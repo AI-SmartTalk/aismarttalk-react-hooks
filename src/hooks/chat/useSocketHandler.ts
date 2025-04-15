@@ -4,6 +4,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
 } from "react";
 import socketIOClient from "socket.io-client";
 import { ChatActionTypes } from "../../reducers/chatReducers";
@@ -18,6 +19,60 @@ import {
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
 import { isMessageDuplicate } from "../../utils/messageUtils";
+
+// Define logger interface
+interface SocketLogger {
+  log: (...args: any[]) => void;
+  error: (...args: any[]) => void;
+  warn: (...args: any[]) => void;
+  info: (...args: any[]) => void;
+  debug: (...args: any[]) => void;
+  group: (label: string) => void;
+  groupEnd: () => void;
+}
+
+// Debug logger utility
+const createSocketLogger = (enabled: boolean): SocketLogger => {
+  const timestamp = () => new Date().toISOString().split('T')[1].split('.')[0];
+  
+  return {
+    log: (...args: any[]) => {
+      if (enabled) {
+        console.log(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    error: (...args: any[]) => {
+      if (enabled) {
+        console.error(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    warn: (...args: any[]) => {
+      if (enabled) {
+        console.warn(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    info: (...args: any[]) => {
+      if (enabled) {
+        console.info(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    debug: (...args: any[]) => {
+      if (enabled) {
+        console.debug(`[WebSocket][${timestamp()}]`, ...args);
+      }
+    },
+    group: (label: string) => {
+      if (enabled) {
+        console.group(`[WebSocket][${timestamp()}] ${label}`);
+      }
+    },
+    groupEnd: () => {
+      if (enabled) {
+        console.groupEnd();
+      }
+    }
+  };
+};
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -34,30 +89,58 @@ export const useSocketHandler = (
   fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
-  messages: FrontChatMessage[]
+  messages: FrontChatMessage[],
+  debug: boolean = false
 ): any => {
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
+  const reconnectCountRef = useRef<number>(0);
+  const socketEventCountsRef = useRef<Record<string, number>>({});
+  const connectAttemptsRef = useRef<number>(0);
+  
+  // Create logger
+  const logger = useMemo(() => createSocketLogger(debug), [debug]);
 
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
+
+  // Track socket events for debugging
+  const trackEvent = useCallback((eventName: string) => {
+    if (!debug) return;
+    
+    socketEventCountsRef.current[eventName] = (socketEventCountsRef.current[eventName] || 0) + 1;
+    logger.debug(`Event "${eventName}" triggered (count: ${socketEventCountsRef.current[eventName]})`);
+  }, [debug, logger]);
 
   // Force socket cleanup when instance changes
   useEffect(() => {
     if (currentInstanceRef.current !== chatInstanceId) {
+      logger.group('Chat Instance Changed');
+      logger.log(`Previous: ${currentInstanceRef.current}, New: ${chatInstanceId}`);
+      
       if (socketRef.current) {
+        logger.log('Cleaning up previous socket connection due to instance change');
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
       currentInstanceRef.current = chatInstanceId;
       lastMessageReceivedRef.current = 0;
+      reconnectCountRef.current = 0;
+      logger.groupEnd();
     }
-  }, [chatInstanceId]);
+  }, [chatInstanceId, logger]);
 
   useEffect(() => {
     if (!chatInstanceId || !chatModelId || !finalApiUrl) {
+      logger.log('Missing required params, not connecting socket', { 
+        chatInstanceId: !!chatInstanceId, 
+        chatModelId: !!chatModelId, 
+        apiUrl: !!finalApiUrl 
+      });
+      
       if (socketRef.current) {
+        logger.log('Cleaning up socket due to missing parameters');
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -67,6 +150,7 @@ export const useSocketHandler = (
 
     // Always cleanup previous socket if it exists
     if (socketRef.current) {
+      logger.log('Cleaning up previous socket connection before new connection');
       socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
@@ -74,6 +158,16 @@ export const useSocketHandler = (
 
     // Set initial value of lastMessageReceivedRef to now, to prevent immediate API fetches
     lastMessageReceivedRef.current = Date.now();
+    connectAttemptsRef.current++;
+    
+    logger.group('Socket Connection');
+    logger.log(`Attempt #${connectAttemptsRef.current} - Connecting to: ${finalWsUrl}`);
+    logger.log('Connection parameters:', { 
+      chatInstanceId, 
+      userId: user.id || initialUser.id,
+      reconnect: false,
+      messages: messages.length
+    });
 
     const socket = socketIOClient(finalWsUrl, {
       query: {
@@ -90,29 +184,67 @@ export const useSocketHandler = (
     socketRef.current = socket;
     socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
     socketRef.current.lastMessageReceivedRef = lastMessageReceivedRef;
+    socketRef.current._debug = debug;
+    socketRef.current._connectTime = Date.now();
 
     socket.on("connect_error", (err) => {
-      console.error("Socket connection error:", err);
+      trackEvent('connect_error');
+      logger.error('Socket connection error:', err.message || err);
+      logger.log('Connection details:', { 
+        url: finalWsUrl, 
+        chatInstanceId,
+        attempt: connectAttemptsRef.current,
+        connectionAge: Date.now() - (socketRef.current?._connectTime || 0)
+      });
       setSocketStatus("error");
     });
 
     socket.on("connect", () => {
+      trackEvent('connect');
+      const connectionTime = Date.now() - (socketRef.current?._connectTime || Date.now());
+      logger.log(`Socket connected successfully in ${connectionTime}ms`);
+      
       socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
       
       // ONLY fetch if we have absolutely no messages - never fetch on reconnect
       if (messages.length === 0) {
-        console.log("[AISmarttalk Socket] Initial connection, fetching messages");
+        logger.log('Initial connection, fetching messages');
         fetchMessagesFromApi();
+      } else {
+        logger.log('Connection restored, skipping fetch (messages: ' + messages.length + ')');
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
+      trackEvent('disconnect');
+      reconnectCountRef.current++;
+      
+      logger.group('Socket Disconnected');
+      logger.log(`Reason: ${reason}`);
+      logger.log(`Disconnect #${reconnectCountRef.current}`);
+      logger.log('Socket lifetime:', `${(Date.now() - socketRef.current?._connectTime)/1000}s`);
+      logger.log('Connection info:', {
+        messagesReceived: socketEventCountsRef.current['chat-message'] || 0,
+        lastMessageTime: lastMessageReceivedRef.current ? new Date(lastMessageReceivedRef.current).toISOString() : 'none',
+        currentMessages: messages.length
+      });
+      logger.groupEnd();
+      
       setSocketStatus("disconnected");
     });
 
     socket.on("chat-message", (data) => {
+      trackEvent('chat-message');
+      
       if (data.chatInstanceId === chatInstanceId) {
+        logger.group('Message Received');
+        logger.log('Message:', { 
+          id: data.message?.id, 
+          text: data.message?.text?.substring(0, 30) + '...',
+          fromUser: data.message?.user?.id === user.id
+        });
+        
         // Update timestamp BEFORE processing
         const now = Date.now();
         lastMessageReceivedRef.current = now;
@@ -120,7 +252,8 @@ export const useSocketHandler = (
         
         // Skip duplicate messages
         if (isMessageDuplicate(data.message, messages)) {
-          console.log("[AISmarttalk Socket] Skipping duplicate message:", data.message.id);
+          logger.log('Skipping duplicate message:', data.message?.id);
+          logger.groupEnd();
           return;
         }
         
@@ -133,6 +266,8 @@ export const useSocketHandler = (
           user.id === "anonymous" && 
           (data.message.user?.id === "anonymous" || 
            data.message.user?.email === "anonymous@example.com");
+        
+        logger.log('Processing message with isSent:', isCurrentUser || isAnonymousUser);
         
         // Add message
         dispatch({
@@ -147,15 +282,26 @@ export const useSocketHandler = (
             userEmail: user.email,
           },
         });
+        
+        logger.log('Message processing complete');
+        logger.groupEnd();
+      } else {
+        logger.log('Ignoring message for different chat instance', { 
+          messageFor: data.chatInstanceId, 
+          current: chatInstanceId 
+        });
       }
     });
 
     socket.on("user-typing", (data: TypingUser) => {
+      trackEvent('user-typing');
       stableTypingUpdate(data);
     });
 
     socket.on("update-suggestions", (data) => {
+      trackEvent('update-suggestions');
       if (data.chatInstanceId === chatInstanceId) {
+        logger.log('Received suggestions update', { count: data.suggestions?.length || 0 });
         saveSuggestions(chatInstanceId, data.suggestions);
         dispatch({
           type: ChatActionTypes.UPDATE_SUGGESTIONS,
@@ -165,10 +311,12 @@ export const useSocketHandler = (
     });
 
     socket.on("conversation-starters", (data) => {
+      trackEvent('conversation-starters');
       if (
         data.chatInstanceId === chatInstanceId &&
         data.conversationStarters?.length
       ) {
+        logger.log('Received conversation starters', { count: data.conversationStarters.length });
         setConversationStarters(data.conversationStarters);
         saveConversationStarters(chatModelId, data.conversationStarters);
       }
@@ -177,6 +325,9 @@ export const useSocketHandler = (
     socket.on(
       "otp-login",
       (data: { chatInstanceId: string; user: User; token: string }) => {
+        trackEvent('otp-login');
+        logger.group('OTP Login');
+        
         if (data.user && data.token) {
           // Ensure we create a complete user object with token
           const finalUser: User = {
@@ -185,35 +336,41 @@ export const useSocketHandler = (
             id: data.user.id || `user-${data.user.email.split("@")[0]}`,
           };
 
+          logger.log('Received user token', { email: finalUser.email, id: finalUser.id });
+          
           // Update user with the token
           setUser(finalUser);
 
           // Store directly to localStorage as backup in case setUser doesn't persist
           try {
             localStorage.setItem("user", JSON.stringify(finalUser));
+            logger.log('User saved to localStorage');
           } catch (err) {
-            console.error(
-              "[AI Smarttalk] Failed to store user in localStorage:",
-              err
-            );
+            logger.error('Failed to store user in localStorage:', err);
           }
 
           // Close the current socket
+          logger.log('Disconnecting socket to reconnect with new user credentials');
           socket.disconnect();
         } else {
-          console.error(
-            "[AI Smarttalk] Invalid user data from otp-login, missing token or user data"
-          );
+          logger.error('Invalid user data from otp-login, missing token or user data');
           // If we don't have both user and token, keep user as anonymous
           setUser({ ...initialUser });
           localStorage.removeItem("user");
         }
+        
+        logger.groupEnd();
       }
     );
 
-    socket.on("tool-run-start", (data: Tool) => setActiveTool(data));
+    socket.on("tool-run-start", (data: Tool) => {
+      trackEvent('tool-run-start');
+      logger.log('Tool started:', data.name);
+      setActiveTool(data);
+    });
 
     socket.on("canvas:update", (canvas: Canvas) => {
+      trackEvent('canvas:update');
       canvasHistory.updateCanvas(canvas);
     });
 
@@ -228,18 +385,33 @@ export const useSocketHandler = (
         end: number;
         lines: string[];
       }) => {
+        trackEvent('canvas:line-update');
         canvasHistory.updateLineRange(start, end, lines);
       }
     );
+    
+    // Log all events for debugging
+    socket.onAny((event) => {
+      if (debug) {
+        logger.debug(`Socket event: ${event}`);
+      }
+    });
+    
+    logger.log('Socket setup complete, waiting for connection events');
+    logger.groupEnd();
 
     return () => {
       if (socket) {
+        logger.log('Cleaning up socket on unmount/effect cleanup');
+        logger.log('Socket lifetime:', `${(Date.now() - socketRef.current?._connectTime)/1000}s`);
+        logger.log('Events received:', socketEventCountsRef.current);
+        
         socket.removeAllListeners();
         socket.disconnect();
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl, fetchMessagesFromApi, messages.length, debug, logger, trackEvent]);
 
   return socketRef;
 };

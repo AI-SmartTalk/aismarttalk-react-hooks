@@ -33,6 +33,7 @@ import { shouldMessageBeSent } from "../utils/messageUtils";
  * @param {string} [options.config.apiToken] - Authentication token for API requests
  * @param {string} [options.lang] - Language for the chat
  * @param {boolean} [options.isAdmin] - Indicates if the user is an admin
+ * @param {boolean} [options.debug] - Indicates if debug mode is enabled
  * @returns {Object} Chat state and methods
  * @returns {FrontChatMessage[]} returns.messages - Array of chat messages
  * @returns {number} returns.notificationCount - Number of unread notifications
@@ -67,6 +68,7 @@ export const useChatMessages = ({
   config,
   lang = "en",
   isAdmin = false,
+  debug = false
 }: UseChatMessagesOptions) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
@@ -436,7 +438,8 @@ export const useChatMessages = ({
     fetchMessagesFromApi,
     debouncedTypingUsersUpdate,
     canvasHistory,
-    state.messages
+    state.messages,
+    debug
   );
 
   // Handle socket reconnection
