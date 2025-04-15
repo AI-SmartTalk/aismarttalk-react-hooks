@@ -50,9 +50,21 @@ export const useChatInstance = ({
   const finalApiToken = config?.apiToken || "";
   const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin': '-standard'}]`;
 
-  const [chatInstanceId, setChatInstanceId] = useState<string>('');
+  // Try to load instance from localStorage immediately
+  const getInitialInstanceId = () => {
+    try {
+      const savedInstance = localStorage.getItem(storageKey);
+      return savedInstance || '';
+    } catch (err) {
+      console.error('Error reading from localStorage:', err);
+      return '';
+    }
+  };
+
+  const [chatInstanceId, setChatInstanceId] = useState<string>(getInitialInstanceId);
   const [error, setError] = useState<Error | null>(null);
   const [isChanging, setIsChanging] = useState<boolean>(false);
+  const [hasInitialized, setHasInitialized] = useState<boolean>(false);
 
   const cleanup = useCallback(() => {
     setChatInstanceId('');
@@ -129,7 +141,8 @@ export const useChatInstance = ({
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
-      if (isChanging) return;
+      // Skip if already initialized or currently changing
+      if (isChanging || hasInitialized) return;
 
       let savedInstance = null;
       try {
@@ -142,12 +155,14 @@ export const useChatInstance = ({
         if (isMounted) {
           setChatInstanceId(savedInstance);
           setIsChanging(false);
+          setHasInitialized(true);
         }
       } else if (!chatInstanceId && isMounted) {
         try {
           const newInstanceId = await initializeChatInstance();
           if (isMounted) {
             setChatInstanceId(newInstanceId);
+            setHasInitialized(true);
           }
         } catch (error) {
           console.error('Failed to initialize instance:', error);
@@ -155,6 +170,9 @@ export const useChatInstance = ({
             setError(error instanceof Error ? error : new Error('Failed to initialize instance'));
           }
         }
+      } else {
+        // Mark as initialized if we already have an instance ID
+        setHasInitialized(true);
       }
     };
 

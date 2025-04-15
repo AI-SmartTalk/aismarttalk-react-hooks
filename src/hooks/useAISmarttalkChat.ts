@@ -240,12 +240,18 @@ export const useAISmarttalkChat = ({
   useEffect(() => {
     if (!chatInstanceId) return;
     
+    // Skip if we already have messages to prevent flickering
+    if (messages.length > 0) {
+      logger.log('Already have messages, skipping conversation restore');
+      return;
+    }
+    
     const conversation = conversations.find(conv => conv.id === chatInstanceId);
     if (conversation) {
       logger.log('Restoring conversation:', chatInstanceId);
       selectConversation(chatInstanceId);
     }
-  }, [chatInstanceId, conversations, selectConversation, logger]);
+  }, [chatInstanceId, conversations, selectConversation, logger, messages.length]);
 
   /**
    * Logs out the current user and creates a new conversation for anonymous user

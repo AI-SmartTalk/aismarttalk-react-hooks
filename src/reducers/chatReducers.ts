@@ -91,6 +91,7 @@ interface ChatAction {
     userEmail?: string;
     userId?: string;
     isLoading?: boolean;
+    resetMessages?: boolean;
   };
 }
 
@@ -102,7 +103,25 @@ export const chatReducer = (
     case ChatActionTypes.SET_MESSAGES:
       if (!action.payload.chatInstanceId) return state;
       
-      if (action.payload.messages && action.payload.userId) {
+      // If no messages are provided, maintain current state
+      if (!action.payload.messages) {
+        return state;
+      }
+      
+      // CRITICAL: If the payload is an empty array and we have messages, 
+      // ONLY reset if this is a deliberate reset operation
+      if (action.payload.messages.length === 0 && state.messages.length > 0) {
+        if (action.payload.resetMessages === true) {
+          return { ...state, messages: [] };
+        }
+        
+        // Otherwise keep our existing messages - NEVER clear messages automatically
+        console.log("[AISmarttalk] Prevented accidental message reset");
+        return state;
+      }
+      
+      // Process isSent status for messages if user information is provided
+      if (action.payload.userId) {
         action.payload.messages.forEach(msg => {
           if (!msg.isSent) { // Only set isSent if it's not already set
             msg.isSent = shouldMessageBeSent(msg, action.payload.userId, action.payload.userEmail);
@@ -167,10 +186,24 @@ export const chatReducer = (
         const mergedMessages = Array.from(existingMessages.values())
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         
-        return { ...state, messages: mergedMessages.slice(-30) };
+        const limitedMessages = mergedMessages.slice(-50); // Increased from 30 to 50
+        
+        // Save to localStorage to ensure persistence
+        debouncedSaveMessagesToLocalStorage(
+          limitedMessages,
+          action.payload.chatInstanceId || ""
+        );
+        
+        return { ...state, messages: limitedMessages };
       }
       
-      return { ...state, messages: action.payload.messages?.slice(-30) || [] };
+      // Save the messages directly to localStorage if we're replacing all messages
+      debouncedSaveMessagesToLocalStorage(
+        action.payload.messages,
+        action.payload.chatInstanceId || ""
+      );
+      
+      return { ...state, messages: action.payload.messages.slice(-50) };
 
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;

@@ -86,7 +86,6 @@ export const useSocketHandler = (
   setConversationStarters: Dispatch<SetStateAction<CTADTO[]>>,
   setActiveTool: Dispatch<SetStateAction<Tool | null>>,
   setUser: (user: User) => void,
-  fetchMessagesFromApi: () => void,
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
@@ -120,12 +119,19 @@ export const useSocketHandler = (
       
       if (socketRef.current) {
         logger.log('Cleaning up previous socket connection due to instance change');
+        
+        // Preserve message timestamp before disconnecting to avoid API calls
+        const lastMsgTime = socketRef.current._lastMessageTime || Date.now();
+        
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
+        
+        // Set last message time to now to prevent immediate API calls after reconnect
+        lastMessageReceivedRef.current = lastMsgTime;
       }
+      
       currentInstanceRef.current = chatInstanceId;
-      lastMessageReceivedRef.current = 0;
       reconnectCountRef.current = 0;
       logger.groupEnd();
     }
@@ -145,7 +151,14 @@ export const useSocketHandler = (
         socketRef.current.disconnect();
         socketRef.current = null;
       }
-      return;
+      return () => {
+        // Cleanup on unmount
+        if (socketRef.current) {
+          socketRef.current.removeAllListeners();
+          socketRef.current.disconnect();
+          socketRef.current = null;
+        }
+      };
     }
 
     // Always cleanup previous socket if it exists
@@ -177,7 +190,10 @@ export const useSocketHandler = (
         userName: user.name || initialUser.name,
       },
       forceNew: true,
-      reconnection: false, // Disable auto-reconnection
+      reconnection: true, // Enable auto-reconnection
+      reconnectionAttempts: 5, // Number of reconnection attempts
+      reconnectionDelay: 1000, // Initial delay between reconnections (ms)
+      reconnectionDelayMax: 5000, // Maximum delay between reconnections (ms)
       timeout: 20000,
     });
 
@@ -205,15 +221,7 @@ export const useSocketHandler = (
       logger.log(`Socket connected successfully in ${connectionTime}ms`);
       
       socket.emit("join", { chatInstanceId });
-      setSocketStatus("connected");
-      
-      // ONLY fetch if we have absolutely no messages - never fetch on reconnect
-      if (messages.length === 0) {
-        logger.log('Initial connection, fetching messages');
-        fetchMessagesFromApi();
-      } else {
-        logger.log('Connection restored, skipping fetch (messages: ' + messages.length + ')');
-      }
+      setSocketStatus("connected");         
     });
 
     socket.on("disconnect", (reason) => {
@@ -232,6 +240,27 @@ export const useSocketHandler = (
       logger.groupEnd();
       
       setSocketStatus("disconnected");
+
+      // We rely on socket.io's automatic reconnection now
+    });
+
+    // Handle reconnection attempts
+    socket.io.on("reconnect_attempt", (attemptNumber) => {
+      logger.log(`Reconnection attempt #${attemptNumber}`);
+      setSocketStatus("reconnecting");
+    });
+
+    // Handle successful reconnection
+    socket.io.on("reconnect", () => {
+      logger.log('Socket reconnected successfully');
+      socket.emit("join", { chatInstanceId });
+      setSocketStatus("connected");
+    });
+    
+    // Handle failed reconnection
+    socket.io.on("reconnect_failed", () => {
+      logger.error('Socket reconnection failed after max attempts');
+      setSocketStatus("error");
     });
 
     socket.on("chat-message", (data) => {
@@ -411,7 +440,7 @@ export const useSocketHandler = (
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl, user, finalApiUrl, fetchMessagesFromApi, messages.length, debug, logger, trackEvent]);
+  }, [chatInstanceId, chatModelId, finalWsUrl]);
 
   return socketRef;
 };

@@ -6,7 +6,11 @@ import {
   initialChatState,
 } from "../reducers/chatReducers";
 import { ChatHistoryItem, CTADTO, FrontChatMessage } from "../types/chat";
-import { ChatError, ChatErrorType, UseChatMessagesOptions } from "../types/chatConfig";
+import {
+  ChatError,
+  ChatErrorType,
+  UseChatMessagesOptions,
+} from "../types/chatConfig";
 import { defaultApiUrl, defaultWsUrl } from "../types/config";
 import { Tool } from "../types/tools";
 import { TypingUser } from "../types/typingUsers";
@@ -68,7 +72,7 @@ export const useChatMessages = ({
   config,
   lang = "en",
   isAdmin = false,
-  debug = false
+  debug = false,
 }: UseChatMessagesOptions) => {
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
@@ -91,63 +95,106 @@ export const useChatMessages = ({
   const [errorType, setErrorType] = useState<ChatErrorType | null>(null);
   const [errorCode, setErrorCode] = useState<number | null>(null);
   const activeToolTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasInitializedRef = useRef<boolean>(false);
+  const previousChatInstanceRef = useRef<string | null>(null);
+  const cachedMessagesRef = useRef<Record<string, FrontChatMessage[]>>({});
+
+  // Add a reference to the current number of messages
+  const messagesCountRef = useRef<number>(0);
+
+  // Store message count in ref whenever it changes
+  useEffect(() => {
+    messagesCountRef.current = state.messages.length;
+  }, [state.messages.length]);
+
+  // When chatInstanceId changes, try to restore messages from our cache
+  useEffect(() => {
+    if (chatInstanceId && chatInstanceId !== previousChatInstanceRef.current) {
+      previousChatInstanceRef.current = chatInstanceId;
+      
+      // If we have cached messages for this instance, use them immediately
+      if (cachedMessagesRef.current[chatInstanceId]?.length > 0) {
+        dispatch({
+          type: ChatActionTypes.SET_MESSAGES,
+          payload: { 
+            chatInstanceId: chatInstanceId, 
+            messages: cachedMessagesRef.current[chatInstanceId],
+            userId: user?.id,
+            userEmail: user?.email
+          },
+        });
+      }
+    }
+  }, [chatInstanceId, user?.id, user?.email]);
+
+  // Cache messages whenever they change
+  useEffect(() => {
+    if (chatInstanceId && state.messages.length > 0) {
+      cachedMessagesRef.current[chatInstanceId] = state.messages;
+    }
+  }, [chatInstanceId, state.messages]);
 
   /**
    * Handle API errors centrally and provide detailed error information
-   * 
+   *
    * @param statusCode HTTP status code from response
    * @param defaultMessage Default error message
    * @returns Object with message, errorType and statusCode for consistent error handling
    */
-  const handleApiError = useCallback((statusCode: number, defaultMessage: string) => {
-    let message = defaultMessage;
-    let errorType: ChatErrorType = "unknown";
-    
-    switch (statusCode) {
-      case 401:
-        message = "Unauthorized: You need to login to access this chat.";
-        errorType = "auth";
-        break;
-      case 403:
-        message = "Forbidden: You don't have permission to access this chat.";
-        errorType = "permission";
-        break;
-      case 429:
-        message = "Too many requests. Please wait before trying again.";
-        errorType = "rate_limit";
-        break;
-      case 400:
-        message = "Bad request. There might be an issue with your chat configuration.";
-        errorType = "validation";
-        break;
-      case 404:
-        message = "Chat not found. The conversation may have been deleted.";
-        errorType = "not_found";
-        break;
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        message = "Server error. Please contact your administrator for assistance.";
-        errorType = "server";
-        break;
-      default:
-        if (statusCode >= 500) {
+  const handleApiError = useCallback(
+    (statusCode: number, defaultMessage: string) => {
+      let message = defaultMessage;
+      let errorType: ChatErrorType = "unknown";
+
+      switch (statusCode) {
+        case 401:
+          message = "Unauthorized: You need to login to access this chat.";
+          errorType = "auth";
+          break;
+        case 403:
+          message = "Forbidden: You don't have permission to access this chat.";
+          errorType = "permission";
+          break;
+        case 429:
+          message = "Too many requests. Please wait before trying again.";
+          errorType = "rate_limit";
+          break;
+        case 400:
+          message =
+            "Bad request. There might be an issue with your chat configuration.";
+          errorType = "validation";
+          break;
+        case 404:
+          message = "Chat not found. The conversation may have been deleted.";
+          errorType = "not_found";
+          break;
+        case 500:
+        case 502:
+        case 503:
+        case 504:
+          message =
+            "Server error. Please contact your administrator for assistance.";
           errorType = "server";
-        } else if (statusCode >= 400) {
-          errorType = "client";
-        } else {
-          errorType = "unknown";
-        }
-    }
-    
-    setError(message);
-    setErrorType(errorType);
-    setErrorCode(statusCode);
-    
-    return { message, errorType, statusCode };
-  }, []);
-  
+          break;
+        default:
+          if (statusCode >= 500) {
+            errorType = "server";
+          } else if (statusCode >= 400) {
+            errorType = "client";
+          } else {
+            errorType = "unknown";
+          }
+      }
+
+      setError(message);
+      setErrorType(errorType);
+      setErrorCode(statusCode);
+
+      return { message, errorType, statusCode };
+    },
+    []
+  );
+
   // Clear all error states
   const clearError = useCallback(() => {
     setError(null);
@@ -155,11 +202,18 @@ export const useChatMessages = ({
     setErrorCode(null);
   }, []);
 
-  const setApiError = useCallback((message: string, type: ChatErrorType = "unknown", code: number | null = null) => {
-    setError(message);
-    setErrorType(type);
-    setErrorCode(code);
-  }, []);
+  const setApiError = useCallback(
+    (
+      message: string,
+      type: ChatErrorType = "unknown",
+      code: number | null = null
+    ) => {
+      setError(message);
+      setErrorType(type);
+      setErrorCode(code);
+    },
+    []
+  );
 
   const selectConversation = useCallback(
     async (id: string | undefined) => {
@@ -169,14 +223,28 @@ export const useChatMessages = ({
           return;
         }
 
+        // Set local instance ID first for immediate UI updates
         setChatInstanceId(id);
         localStorage.setItem(storageKey, id);
 
-        dispatch({
-          type: ChatActionTypes.SET_MESSAGES,
-          payload: { chatInstanceId: id, messages: [] },
-        });
+        // Critical: Check for cached messages first to avoid any flicker
+        // If we have cached messages, use them immediately while API loads
+        if (cachedMessagesRef.current[id]?.length > 0) {
+          dispatch({
+            type: ChatActionTypes.SET_MESSAGES,
+            payload: { 
+              chatInstanceId: id, 
+              messages: cachedMessagesRef.current[id],
+              userId: user?.id,
+              userEmail: user?.email
+            },
+          });
+        }
+        
+        // Avoid dispatch of empty messages array which could cause flickering
+        // Logic in reducer will prevent clearing messages anyway, but better not to trigger it
 
+        // Fetch messages from API
         const response = await fetch(`${finalApiUrl}/api/chat/history/${id}`, {
           headers: finalApiToken
             ? { Authorization: `Bearer ${finalApiToken}` }
@@ -184,7 +252,10 @@ export const useChatMessages = ({
         });
 
         if (!response.ok) {
-          handleApiError(response.status, `Failed to fetch messages: ${response.status}`);
+          handleApiError(
+            response.status,
+            `Failed to fetch messages: ${response.status}`
+          );
           return;
         }
 
@@ -205,25 +276,51 @@ export const useChatMessages = ({
               created_at: message.created_at,
               updated_at: message.updated_at,
               user: message.user,
-              isSent: shouldMessageBeSent(message, currentUserId, data.connectedOrAnonymousUser?.email || user?.email),
+              isSent: shouldMessageBeSent(
+                message,
+                currentUserId,
+                data.connectedOrAnonymousUser?.email || user?.email
+              ),
             };
           });
 
+          // Cache messages
+          cachedMessagesRef.current[id] = processedMessages;
+
           dispatch({
             type: ChatActionTypes.SET_MESSAGES,
-            payload: { chatInstanceId: id, messages: processedMessages },
+            payload: { 
+              chatInstanceId: id, 
+              messages: processedMessages,
+              userId: currentUserId,
+              userEmail: data.connectedOrAnonymousUser?.email || user?.email
+            },
           });
         }
       } catch (error) {
         console.error("Error selecting conversation:", error);
-        
+
         // Handle network errors or other non-HTTP errors
-        setError(error instanceof Error ? error.message : "Unknown error selecting conversation");
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Unknown error selecting conversation"
+        );
         setErrorType("network");
         setErrorCode(null);
       }
     },
-    [chatModelId, finalApiUrl, finalApiToken, storageKey, handleApiError, clearError]
+    [
+      finalApiUrl,
+      finalApiToken,
+      getNewInstance,
+      handleApiError,
+      setChatInstanceId,
+      storageKey,
+      clearError,
+      user?.id,
+      user?.email,
+    ]
   );
 
   // Initialize chat instance
@@ -247,7 +344,13 @@ export const useChatMessages = ({
   // Load initial conversation history
   useEffect(() => {
     if (!chatInstanceId) return;
-    console.log("[AISmarttalk] chatInstanceId changed, checking history:", chatInstanceId);
+    console.log(
+      "[AISmarttalk] chatInstanceId changed, checking history:",
+      chatInstanceId
+    );
+
+    // Reset initialization state when chatInstanceId changes
+    hasInitializedRef.current = false;
 
     const history = loadConversationHistory(chatInstanceId);
     if (
@@ -255,7 +358,11 @@ export const useChatMessages = ({
       Array.isArray(history.messages) &&
       history.messages.length > 0
     ) {
-      console.log("[AISmarttalk] Loading from local history:", history.messages.length, "messages");
+      console.log(
+        "[AISmarttalk] Loading from local history:",
+        history.messages.length,
+        "messages"
+      );
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
@@ -265,6 +372,9 @@ export const useChatMessages = ({
         },
       });
       setChatTitle(history.title || "");
+
+      // Mark as initialized since we loaded from history
+      hasInitializedRef.current = true;
 
       // Update conversations to ensure the history is reflected
       setConversations((prev) => {
@@ -281,11 +391,11 @@ export const useChatMessages = ({
         return prev;
       });
     } else {
-      // CRITICAL: Only fetch once on initialization and never after reconnect/messages
-      if (state.messages.length === 0) {
-        console.log("[AISmarttalk] No history found and no messages, first-time fetch");
-        fetchMessagesFromApi();
-      } 
+      // Fetch if we haven't initialized this chat instance yet
+      console.log(
+        "[AISmarttalk] No history found, fetch from API"
+      );
+      fetchMessagesFromApi();
     }
   }, [chatInstanceId]); // Only chatInstanceId as dependency
 
@@ -324,93 +434,112 @@ export const useChatMessages = ({
   const fetchMessagesFromApi = useCallback(async () => {
     console.log("[AISmarttalk] fetchMessagesFromApi called with:", {
       messages: state.messages.length,
-      lastMessageTime: socketRef.current?._lastMessageTime ? new Date(socketRef.current?._lastMessageTime).toISOString() : 'none'
+      lastMessageTime: socketRef.current?._lastMessageTime
+        ? new Date(socketRef.current?._lastMessageTime).toISOString()
+        : "none",
+      hasInitialized: hasInitializedRef.current,
     });
-    
+
     const currentInstanceId = chatInstanceId;
     if (!currentInstanceId) {
       return;
     }
 
-    // ABSOLUTELY BLOCK API fetch if we have messages
-    if (state.messages.length > 0) {
-      console.log("[AISmarttalk] Skipping API fetch - messages already exist");
+    // ABSOLUTELY BLOCK API fetch if we have already initialized
+    if (hasInitializedRef.current) {
+      console.log("[AISmarttalk] Skipping API fetch - already initialized");
       return;
     }
 
     try {
-      dispatch({
-        type: ChatActionTypes.SET_LOADING,
-        payload: { isLoading: true },
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
 
-      console.log("[AISmarttalk] Actually fetching messages from API");
+      if (finalApiToken) {
+        headers.appToken = finalApiToken;
+      }
+
+      if (user?.token) {
+        headers["x-use-chatbot-auth"] = "true";
+        headers.Authorization = `Bearer ${user.token}`;
+      }
+
       const response = await fetch(
         `${finalApiUrl}/api/chat/history/${currentInstanceId}`,
         {
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            ...(user.token
-              ? { Authorization: `Bearer ${user.token}` }
-              : {}),
-          },
+          headers,
         }
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // VERIFY again we don't have messages (in case they arrived during fetch)
-      if (state.messages.length > 0) {
-        console.log("[AISmarttalk] Messages arrived during fetch, skipping update");
+        handleApiError(
+          response.status,
+          `Failed to fetch messages: ${response.status}`
+        );
         return;
       }
 
-      if (currentInstanceId === chatInstanceId) {
-        // Clear any errors upon successful fetching
-        clearError();
-        
-        // Update state with messages
-        const processedMessages = data.messages.map((message: any) => {
-          const isCurrentUser =
-            (user.id &&
-              user.id !== "anonymous" &&
-              message.user?.id === user.id) ||
-            (user.email && message.user?.email === user.email);
+      // Clear errors upon successful fetch
+      clearError();
 
-          const isAnonymousUser =
-            user.id === "anonymous" &&
-            (message.user?.id === "anonymous" ||
-              message.user?.email === "anonymous@example.com");
+      const data = await response.json();
+      const apiMessages = data.messages || [];
 
+      if (apiMessages.length > 0) {
+        const currentUserId = data.connectedOrAnonymousUser?.id || user?.id;
+
+        const processedMessages = apiMessages.map((message: any) => {
           return {
-            ...message,
-            isSent: isCurrentUser || isAnonymousUser,
+            id: message.id,
+            text: message.text,
+            chatInstanceId: currentInstanceId,
+            created_at: message.created_at,
+            updated_at: message.updated_at,
+            user: message.user,
+            isSent: shouldMessageBeSent(
+              message,
+              currentUserId,
+              data.connectedOrAnonymousUser?.email || user?.email
+            ),
           };
         });
+
+        // Cache messages for future use
+        cachedMessagesRef.current[currentInstanceId] = processedMessages;
 
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
           payload: {
-            messages: processedMessages,
             chatInstanceId: currentInstanceId,
+            messages: processedMessages,
+            userId: currentUserId,
+            userEmail: data.connectedOrAnonymousUser?.email || user?.email
           },
         });
+
+        // Update title if available
+        if (data.title) {
+          setChatTitle(data.title);
+        }
+      } else if (state.messages.length > 0) {
+        // If API returns no messages but we have local messages,
+        // don't reset them - they might be pending sync to the server
+        console.log('[AISmarttalk] API returned no messages but keeping local messages:', state.messages.length);
       }
+
+      // Mark as initialized after successful fetch
+      hasInitializedRef.current = true;
     } catch (error) {
-      console.error("[AISmarttalk Chat] Error fetching messages:", error);
-      setError("Error fetching messages");
-    } finally {
-      dispatch({
-        type: ChatActionTypes.SET_LOADING,
-        payload: { isLoading: false },
-      });
+      console.error("Error fetching messages:", error);
+      setApiError(
+        error instanceof Error
+          ? error.message
+          : "Unknown error fetching messages",
+        "network"
+      );
     }
-  }, [chatInstanceId, finalApiUrl, user]);
+  }, [chatInstanceId, finalApiUrl, user, state.messages.length]);
 
   const { addMessage } = useMessageHandler(
     chatInstanceId,
@@ -435,7 +564,6 @@ export const useChatMessages = ({
     setConversationStarters,
     setActiveTool,
     setUser,
-    fetchMessagesFromApi,
     debouncedTypingUsersUpdate,
     canvasHistory,
     state.messages,
@@ -446,10 +574,13 @@ export const useChatMessages = ({
   useEffect(() => {
     if (!chatInstanceId || !socketRef?.current) return;
 
-    const shouldReconnect = socketStatus === "disconnected" && !isAdmin && state.messages.length > 0;
+    const shouldReconnect =
+      socketStatus === "disconnected" && !isAdmin && state.messages.length > 0;
 
     if (shouldReconnect) {
-      console.log("[AISmarttalk] Attempting socket reconnection with existing messages");
+      console.log(
+        "[AISmarttalk] Attempting socket reconnection with existing messages"
+      );
       try {
         if (
           socketRef.current.disconnect &&
@@ -520,7 +651,7 @@ export const useChatMessages = ({
         image: user.image ?? "",
       },
     };
-    
+
     // CRITICAL: Update lastMessageReceivedRef to prevent API fetch after message is sent
     // This marks that we just received a message (our own) and don't need to fetch again
     if (socketRef.current) {
@@ -577,12 +708,12 @@ export const useChatMessages = ({
       if (!response.ok) {
         // Use the centralized error handler for API errors
         const { message, errorType, statusCode } = handleApiError(
-          response.status, 
+          response.status,
           `Error sending message: ${response.status}`
         );
-        
+
         showTemporaryToolState("Error", "error");
-        
+
         // Remove the temporary message if there was an error
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
@@ -607,10 +738,10 @@ export const useChatMessages = ({
         chatTitle || userMessage.text.slice(0, 50),
         updatedMessages,
         {
-          id: user.id ?? '',
-          email: user.email ?? '',
-          name: user.name ?? '',
-          image: user.image ?? ''
+          id: user.id ?? "",
+          email: user.email ?? "",
+          name: user.name ?? "",
+          image: user.image ?? "",
         }
       );
 
@@ -708,10 +839,10 @@ export const useChatMessages = ({
             newTitle,
             storedHistory.messages,
             {
-              id: user.id ?? '',
-              email: user.email ?? '',
-              name: user.name ?? '',
-              image: user.image ?? ''
+              id: user.id ?? "",
+              email: user.email ?? "",
+              name: user.name ?? "",
+              image: user.image ?? "",
             }
           );
         } else {
@@ -721,14 +852,14 @@ export const useChatMessages = ({
             state.messages.length > 0
           ) {
             saveConversationHistory(
-              targetInstanceId, 
-              newTitle, 
+              targetInstanceId,
+              newTitle,
               state.messages,
               {
-                id: user.id ?? '',
-                email: user.email ?? '',
-                name: user.name ?? '',
-                image: user.image ?? ''
+                id: user.id ?? "",
+                email: user.email ?? "",
+                name: user.name ?? "",
+                image: user.image ?? "",
               }
             );
           }
@@ -804,6 +935,9 @@ export const useChatMessages = ({
       setChatInstanceId(newInstanceId);
       localStorage.setItem(storageKey, newInstanceId);
 
+      // Reset initialization state for the new chat
+      hasInitializedRef.current = true;
+
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: { chatInstanceId: newInstanceId, messages: [] },
@@ -828,17 +962,12 @@ export const useChatMessages = ({
         return updated;
       });
 
-      saveConversationHistory(
-        newInstanceId, 
-        defaultTitle, 
-        [],
-        {
-          id: user.id ?? '',
-          email: user.email ?? '',
-          name: user.name ?? '',
-          image: user.image ?? ''
-        }
-      );
+      saveConversationHistory(newInstanceId, defaultTitle, [], {
+        id: user.id ?? "",
+        email: user.email ?? "",
+        name: user.name ?? "",
+        image: user.image ?? "",
+      });
 
       // Clear any previous errors when creating a new chat successfully
       clearError();
@@ -849,7 +978,9 @@ export const useChatMessages = ({
     } catch (error) {
       console.error("Error creating new chat:", error);
       // Handle the error with detailed information for developers
-      setError(error instanceof Error ? error.message : "Unknown error creating chat");
+      setError(
+        error instanceof Error ? error.message : "Unknown error creating chat"
+      );
       setErrorType("server");
       setErrorCode(error instanceof Response ? error.status : null);
       return null;
@@ -882,6 +1013,66 @@ export const useChatMessages = ({
     };
   }, []);
 
+  // When component mounts, try to load messages from localStorage
+  useEffect(() => {
+    if (chatInstanceId && !hasInitializedRef.current) {
+      hasInitializedRef.current = true;
+      
+      // Skip loading if we already have messages in state
+      if (state.messages.length > 0) {
+        console.log('[AISmarttalk] Already have messages in state, skipping localStorage load:', state.messages.length);
+        return;
+      }
+      
+      // Load from localStorage
+      const savedConversation = loadConversationHistory(chatInstanceId);
+      
+      if (savedConversation && savedConversation.messages && savedConversation.messages.length > 0) {
+        // Cache messages for future use
+        cachedMessagesRef.current[chatInstanceId] = savedConversation.messages;
+        
+        dispatch({
+          type: ChatActionTypes.SET_MESSAGES,
+          payload: { 
+            chatInstanceId, 
+            messages: savedConversation.messages,
+            userId: user?.id,
+            userEmail: user?.email
+          },
+        });
+      }
+    }
+  }, [chatInstanceId, user?.id, user?.email, state.messages.length]);
+
+  const resetChat = useCallback(() => {
+    try {
+      if (chatInstanceId) {
+        localStorage.removeItem(`chatMessages[${chatInstanceId}]`);
+        
+        // Clear cached messages for this instance
+        if (cachedMessagesRef.current[chatInstanceId]) {
+          delete cachedMessagesRef.current[chatInstanceId];
+        }
+        
+        dispatch({
+          type: ChatActionTypes.SET_MESSAGES,
+          payload: { 
+            chatInstanceId,
+            messages: [],
+            resetMessages: true  // Explicitly mark as reset
+          },
+        });
+        
+        dispatch({
+          type: ChatActionTypes.UPDATE_TITLE,
+          payload: { title: "💬" },
+        });
+      }
+    } catch (err) {
+      console.error('[AISmartTalk] Error resetting chat:', err);
+    }
+  }, [chatInstanceId, dispatch]);
+
   return {
     messages: state.messages,
     notificationCount: state.notificationCount,
@@ -890,7 +1081,7 @@ export const useChatMessages = ({
     error: {
       message: error,
       type: errorType,
-      code: errorCode
+      code: errorCode,
     } as ChatError,
     clearError,
     setError: setApiError,
@@ -920,10 +1111,10 @@ export const useChatMessages = ({
     setConversations,
     saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
       saveConversationHistory(chatInstanceId, title, messages, {
-        id: user.id ?? '',
-        email: user.email ?? '',
-        name: user.name ?? '',
-        image: user.image ?? ''
+        id: user.id ?? "",
+        email: user.email ?? "",
+        name: user.name ?? "",
+        image: user.image ?? "",
       }),
     canvas: canvasHistory.canvas,
     canvasHistory,
@@ -934,5 +1125,6 @@ export const useChatMessages = ({
     chatInstanceId,
     getNewInstance,
     createNewChat,
+    resetChat,
   };
 };
