@@ -111,7 +111,9 @@ export const chatReducer = (
       // CRITICAL: If the payload is an empty array and we have messages, 
       // ONLY reset if this is a deliberate reset operation
       if (action.payload.messages.length === 0 && state.messages.length > 0) {
-        if (action.payload.resetMessages === true) {
+        // Check for explicit resetMessages flag
+        if (action.payload.resetMessages) {
+          console.log("[AISmarttalk] Explicitly resetting messages");
           return { ...state, messages: [] };
         }
         

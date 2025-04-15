@@ -224,6 +224,13 @@ export const useAISmarttalkChat = ({
       logger.group('Conversation Select');
       logger.log('Selecting conversation:', id);
       
+      // Don't do anything if we're already in this conversation
+      if (chatInstanceId === id && messages.length > 0) {
+        logger.log('Already in this conversation, not switching');
+        logger.groupEnd();
+        return;
+      }
+      
       // First select the conversation which will handle both instance and message selection
       await selectConversation(id);
       
@@ -234,7 +241,7 @@ export const useAISmarttalkChat = ({
       setError(error instanceof Error ? error : new Error('Failed to select conversation'));
       logger.groupEnd();
     }
-  }, [selectConversation, logger]);
+  }, [selectConversation, logger, chatInstanceId, messages.length]);
 
   // Add effect to handle initial conversation restoration
   useEffect(() => {

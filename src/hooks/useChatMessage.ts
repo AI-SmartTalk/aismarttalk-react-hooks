@@ -110,10 +110,20 @@ export const useChatMessages = ({
   // When chatInstanceId changes, try to restore messages from our cache
   useEffect(() => {
     if (chatInstanceId && chatInstanceId !== previousChatInstanceRef.current) {
+      // Mark the instance as changed for reference
+      const previousInstance = previousChatInstanceRef.current;
       previousChatInstanceRef.current = chatInstanceId;
       
-      // If we have cached messages for this instance, use them immediately
+      // If we're switching between conversations, don't auto-restore from cache
+      // This allows the selectConversation function to manage message loading properly
+      if (previousInstance && state.messages.length > 0) {
+        console.log('[AISmarttalk] Switching between conversations - manual message loading only');
+        return;
+      }
+      
+      // If we have cached messages, use them immediately when initializing
       if (cachedMessagesRef.current[chatInstanceId]?.length > 0) {
+        console.log('[AISmarttalk] Restoring cached messages:', cachedMessagesRef.current[chatInstanceId].length);
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
           payload: { 
@@ -125,7 +135,7 @@ export const useChatMessages = ({
         });
       }
     }
-  }, [chatInstanceId, user?.id, user?.email]);
+  }, [chatInstanceId, user?.id, user?.email, state.messages.length]);
 
   // Cache messages whenever they change
   useEffect(() => {
@@ -133,6 +143,14 @@ export const useChatMessages = ({
       cachedMessagesRef.current[chatInstanceId] = state.messages;
     }
   }, [chatInstanceId, state.messages]);
+
+  // Add a helper function to clear cached messages for a specific instance
+  const clearCachedMessages = useCallback((instanceId: string) => {
+    if (cachedMessagesRef.current[instanceId]) {
+      console.log(`[AISmarttalk] Clearing cached messages for instance: ${instanceId}`);
+      delete cachedMessagesRef.current[instanceId];
+    }
+  }, []);
 
   /**
    * Handle API errors centrally and provide detailed error information
@@ -223,9 +241,29 @@ export const useChatMessages = ({
           return;
         }
 
+        // Remember the current instance ID before switching
+        const previousInstanceId = chatInstanceId;
+        
         // Set local instance ID first for immediate UI updates
         setChatInstanceId(id);
         localStorage.setItem(storageKey, id);
+
+        // If we're switching to a different conversation, we should clear existing messages first
+        if (previousInstanceId && previousInstanceId !== id) {
+          console.log("[AISmarttalk] Switching conversation - clearing existing messages first");
+          
+          // When switching conversations, ensure new instance starts with clean slate
+          clearCachedMessages(id);
+          
+          dispatch({
+            type: ChatActionTypes.SET_MESSAGES,
+            payload: { 
+              chatInstanceId: id, 
+              messages: [],
+              resetMessages: true // Explicitly mark as reset for conversation switch
+            },
+          });
+        }
 
         // Critical: Check for cached messages first to avoid any flicker
         // If we have cached messages, use them immediately while API loads
@@ -320,6 +358,7 @@ export const useChatMessages = ({
       clearError,
       user?.id,
       user?.email,
+      clearCachedMessages
     ]
   );
 
@@ -922,6 +961,9 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
+      // Store the current instance ID before getting a new one
+      const oldInstanceId = chatInstanceId;
+      
       const newInstanceId = await getNewInstance();
 
       if (!newInstanceId) {
@@ -932,15 +974,30 @@ export const useChatMessages = ({
         return null;
       }
 
+      // First, reset the messages in the current chat instance if switching from an existing one
+      if (oldInstanceId && oldInstanceId !== newInstanceId) {
+        // Clear cached messages for the new instance to ensure a clean start
+        clearCachedMessages(newInstanceId);
+      }
+
+      // Update the instance ID
       setChatInstanceId(newInstanceId);
       localStorage.setItem(storageKey, newInstanceId);
 
       // Reset initialization state for the new chat
       hasInitializedRef.current = true;
-
+      
+      // Force clear the messages cache again (just to be sure)
+      clearCachedMessages(newInstanceId);
+      
+      // Explicitly reset messages with resetMessages flag to ensure proper clearing
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
-        payload: { chatInstanceId: newInstanceId, messages: [] },
+        payload: { 
+          chatInstanceId: newInstanceId, 
+          messages: [],
+          resetMessages: true  // Explicitly mark as reset for new chat
+        },
       });
 
       const defaultTitle = "💬 Nouvelle conversation";
@@ -985,7 +1042,7 @@ export const useChatMessages = ({
       setErrorCode(error instanceof Response ? error.status : null);
       return null;
     }
-  }, [chatModelId, dispatch, storageKey, clearError]);
+  }, [chatModelId, dispatch, storageKey, clearError, chatInstanceId, clearCachedMessages]);
 
   useEffect(() => {
     if (state.messages.length > 0) {
