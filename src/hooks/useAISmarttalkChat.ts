@@ -61,7 +61,7 @@ export const useAISmarttalkChat = ({
   const [error, setError] = useState<Error | null>(null);
 
   // Memoize user-related hooks to prevent unnecessary re-renders
-  const { user, setUser, updateUserFromLocalStorage } = useUser(config?.user);
+  const { user, setUser, updateUserFromLocalStorage, logout, initialUser } = useUser(config?.user);
 
   // Memoize chat model with useMemo to prevent unnecessary updates
   const { chatModel, setChatModel } = useChatModel({ 
@@ -126,6 +126,39 @@ export const useAISmarttalkChat = ({
     }
   }, [chatInstanceId, conversations, selectConversation]);
 
+  /**
+   * Logs out the current user and creates a new conversation for anonymous user
+   */
+  const handleLogout = useCallback(async () => {
+    try {
+      // If we have a current chat instance, clean up its storage
+      if (chatInstanceId) {
+        // Clean up chat history for the current conversation
+        try {
+          localStorage.removeItem(`chat-${chatInstanceId}-history`);
+          localStorage.removeItem(`chatMessages[${chatInstanceId}]`);
+          localStorage.removeItem(`chat-${chatInstanceId}-suggestions`);
+        } catch (error) {
+          console.warn('[AI Smarttalk] Error cleaning up chat history during logout:', error);
+        }
+      }
+      
+      // First, log out the user (resets to anonymous)
+      logout();
+      
+      // Then create a new conversation for the anonymous user
+      const newChatId = await createNewChat();
+      
+      // Select the new conversation
+      if (newChatId) {
+        await selectConversation(newChatId);
+      }
+    } catch (error) {
+      console.error('Error during logout:', error);
+      setError(error instanceof Error ? error : new Error('Failed to complete logout process'));
+    }
+  }, [logout, createNewChat, selectConversation, chatInstanceId]);
+
   return {
     // Chat instance related
     chatInstanceId,
@@ -137,6 +170,7 @@ export const useAISmarttalkChat = ({
     user,
     setUser,
     updateUserFromLocalStorage,
+    logout: handleLogout,
 
     // Messages related
     messages,

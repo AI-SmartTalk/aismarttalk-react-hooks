@@ -196,10 +196,34 @@ export default function useUser(initialUserOverride?: User) {
     }
   }, [initialUserOverride]);
 
+  /**
+   * Logs out the current user by resetting to anonymous user and clearing localStorage.
+   * 
+   * @returns The anonymous user that was set after logout
+   */
+  const logout = useCallback(() => {
+    if (initialUserOverride) {
+      console.warn("[AI Smarttalk] Cannot logout when using initialUserOverride");
+      return initialUser;
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("user");
+      } catch (error) {
+        console.warn("[AI Smarttalk] Failed to remove user from localStorage during logout");
+      }
+    }
+
+    setUserState(initialUser);
+    return initialUser;
+  }, [initialUserOverride]);
+
   return {
     user,
     setUser,
     updateUserFromLocalStorage,
     initialUser,
+    logout,
   };
 }
