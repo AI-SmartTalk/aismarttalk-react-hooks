@@ -99,55 +99,43 @@ export const useChatMessages = ({
   const previousChatInstanceRef = useRef<string | null>(null);
   const cachedMessagesRef = useRef<Record<string, FrontChatMessage[]>>({});
 
-  // Add a reference to the current number of messages
   const messagesCountRef = useRef<number>(0);
 
-  // Store message count in ref whenever it changes
   useEffect(() => {
     messagesCountRef.current = state.messages.length;
   }, [state.messages.length]);
 
-  // When chatInstanceId changes, try to restore messages from our cache
   useEffect(() => {
     if (chatInstanceId && chatInstanceId !== previousChatInstanceRef.current) {
-      // Mark the instance as changed for reference
       const previousInstance = previousChatInstanceRef.current;
       previousChatInstanceRef.current = chatInstanceId;
-      
-      // If we're switching between conversations, don't auto-restore from cache
-      // This allows the selectConversation function to manage message loading properly
+
       if (previousInstance && state.messages.length > 0) {
-        console.log('[AISmarttalk] Switching between conversations - manual message loading only');
         return;
       }
-      
-      // If we have cached messages, use them immediately when initializing
+
       if (cachedMessagesRef.current[chatInstanceId]?.length > 0) {
-        console.log('[AISmarttalk] Restoring cached messages:', cachedMessagesRef.current[chatInstanceId].length);
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
-          payload: { 
-            chatInstanceId: chatInstanceId, 
+          payload: {
+            chatInstanceId: chatInstanceId,
             messages: cachedMessagesRef.current[chatInstanceId],
             userId: user?.id,
-            userEmail: user?.email
+            userEmail: user?.email,
           },
         });
       }
     }
   }, [chatInstanceId, user?.id, user?.email, state.messages.length]);
 
-  // Cache messages whenever they change
   useEffect(() => {
     if (chatInstanceId && state.messages.length > 0) {
       cachedMessagesRef.current[chatInstanceId] = state.messages;
     }
   }, [chatInstanceId, state.messages]);
 
-  // Add a helper function to clear cached messages for a specific instance
   const clearCachedMessages = useCallback((instanceId: string) => {
     if (cachedMessagesRef.current[instanceId]) {
-      console.log(`[AISmarttalk] Clearing cached messages for instance: ${instanceId}`);
       delete cachedMessagesRef.current[instanceId];
     }
   }, []);
@@ -213,7 +201,6 @@ export const useChatMessages = ({
     []
   );
 
-  // Clear all error states
   const clearError = useCallback(() => {
     setError(null);
     setErrorType(null);
@@ -241,48 +228,36 @@ export const useChatMessages = ({
           return;
         }
 
-        // Remember the current instance ID before switching
         const previousInstanceId = chatInstanceId;
-        
-        // Set local instance ID first for immediate UI updates
+
         setChatInstanceId(id);
         localStorage.setItem(storageKey, id);
 
-        // If we're switching to a different conversation, we should clear existing messages first
         if (previousInstanceId && previousInstanceId !== id) {
-          console.log("[AISmarttalk] Switching conversation - clearing existing messages first");
-          
-          // When switching conversations, ensure new instance starts with clean slate
           clearCachedMessages(id);
-          
+
           dispatch({
             type: ChatActionTypes.SET_MESSAGES,
-            payload: { 
-              chatInstanceId: id, 
+            payload: {
+              chatInstanceId: id,
               messages: [],
-              resetMessages: true // Explicitly mark as reset for conversation switch
+              resetMessages: true,
             },
           });
         }
 
-        // Critical: Check for cached messages first to avoid any flicker
-        // If we have cached messages, use them immediately while API loads
         if (cachedMessagesRef.current[id]?.length > 0) {
           dispatch({
             type: ChatActionTypes.SET_MESSAGES,
-            payload: { 
-              chatInstanceId: id, 
+            payload: {
+              chatInstanceId: id,
               messages: cachedMessagesRef.current[id],
               userId: user?.id,
-              userEmail: user?.email
+              userEmail: user?.email,
             },
           });
         }
-        
-        // Avoid dispatch of empty messages array which could cause flickering
-        // Logic in reducer will prevent clearing messages anyway, but better not to trigger it
 
-        // Fetch messages from API
         const response = await fetch(`${finalApiUrl}/api/chat/history/${id}`, {
           headers: finalApiToken
             ? { Authorization: `Bearer ${finalApiToken}` }
@@ -297,7 +272,6 @@ export const useChatMessages = ({
           return;
         }
 
-        // Clear any errors upon successful conversation selection
         clearError();
 
         const data = await response.json();
@@ -322,23 +296,21 @@ export const useChatMessages = ({
             };
           });
 
-          // Cache messages
           cachedMessagesRef.current[id] = processedMessages;
 
           dispatch({
             type: ChatActionTypes.SET_MESSAGES,
-            payload: { 
-              chatInstanceId: id, 
+            payload: {
+              chatInstanceId: id,
               messages: processedMessages,
               userId: currentUserId,
-              userEmail: data.connectedOrAnonymousUser?.email || user?.email
+              userEmail: data.connectedOrAnonymousUser?.email || user?.email,
             },
           });
         }
       } catch (error) {
         console.error("Error selecting conversation:", error);
 
-        // Handle network errors or other non-HTTP errors
         setError(
           error instanceof Error
             ? error.message
@@ -358,37 +330,24 @@ export const useChatMessages = ({
       clearError,
       user?.id,
       user?.email,
-      clearCachedMessages
+      clearCachedMessages,
     ]
   );
 
-  // Initialize chat instance
   useEffect(() => {
-    // Don't do anything if we already have a chat instance
     if (chatInstanceId) return;
-    // Don't do anything in admin mode
     if (isAdmin) return;
 
-    // Attempt to load from stored instance
     const savedInstance = localStorage.getItem(storageKey);
     if (savedInstance) {
-      // Set directly rather than calling selectConversation to avoid multiple API calls
       setChatInstanceId(savedInstance);
     } else {
-      // Create new chat instance if none exists
       getNewInstance();
     }
-  }, []); // Empty dependency array to run only once
-
-  // Load initial conversation history
+  }, []);
   useEffect(() => {
     if (!chatInstanceId) return;
-    console.log(
-      "[AISmarttalk] chatInstanceId changed, checking history:",
-      chatInstanceId
-    );
 
-    // Reset initialization state when chatInstanceId changes
     hasInitializedRef.current = false;
 
     const history = loadConversationHistory(chatInstanceId);
@@ -397,11 +356,6 @@ export const useChatMessages = ({
       Array.isArray(history.messages) &&
       history.messages.length > 0
     ) {
-      console.log(
-        "[AISmarttalk] Loading from local history:",
-        history.messages.length,
-        "messages"
-      );
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
         payload: {
@@ -412,10 +366,8 @@ export const useChatMessages = ({
       });
       setChatTitle(history.title || "");
 
-      // Mark as initialized since we loaded from history
       hasInitializedRef.current = true;
 
-      // Update conversations to ensure the history is reflected
       setConversations((prev) => {
         const existing = prev.findIndex((c) => c.id === chatInstanceId);
         if (existing === -1) {
@@ -430,15 +382,9 @@ export const useChatMessages = ({
         return prev;
       });
     } else {
-      // Fetch if we haven't initialized this chat instance yet
-      console.log(
-        "[AISmarttalk] No history found, fetch from API"
-      );
       fetchMessagesFromApi();
     }
-  }, [chatInstanceId]); // Only chatInstanceId as dependency
-
-  // Load conversation list from storage
+  }, [chatInstanceId]);
   useEffect(() => {
     const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
     if (stored) {
@@ -471,22 +417,12 @@ export const useChatMessages = ({
   }, 500);
 
   const fetchMessagesFromApi = useCallback(async () => {
-    console.log("[AISmarttalk] fetchMessagesFromApi called with:", {
-      messages: state.messages.length,
-      lastMessageTime: socketRef.current?._lastMessageTime
-        ? new Date(socketRef.current?._lastMessageTime).toISOString()
-        : "none",
-      hasInitialized: hasInitializedRef.current,
-    });
-
     const currentInstanceId = chatInstanceId;
     if (!currentInstanceId) {
       return;
     }
 
-    // ABSOLUTELY BLOCK API fetch if we have already initialized
     if (hasInitializedRef.current) {
-      console.log("[AISmarttalk] Skipping API fetch - already initialized");
       return;
     }
 
@@ -519,7 +455,6 @@ export const useChatMessages = ({
         return;
       }
 
-      // Clear errors upon successful fetch
       clearError();
 
       const data = await response.json();
@@ -544,7 +479,6 @@ export const useChatMessages = ({
           };
         });
 
-        // Cache messages for future use
         cachedMessagesRef.current[currentInstanceId] = processedMessages;
 
         dispatch({
@@ -553,21 +487,15 @@ export const useChatMessages = ({
             chatInstanceId: currentInstanceId,
             messages: processedMessages,
             userId: currentUserId,
-            userEmail: data.connectedOrAnonymousUser?.email || user?.email
+            userEmail: data.connectedOrAnonymousUser?.email || user?.email,
           },
         });
 
-        // Update title if available
         if (data.title) {
           setChatTitle(data.title);
         }
-      } else if (state.messages.length > 0) {
-        // If API returns no messages but we have local messages,
-        // don't reset them - they might be pending sync to the server
-        console.log('[AISmarttalk] API returned no messages but keeping local messages:', state.messages.length);
       }
 
-      // Mark as initialized after successful fetch
       hasInitializedRef.current = true;
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -609,7 +537,6 @@ export const useChatMessages = ({
     debug
   );
 
-  // Handle socket reconnection
   useEffect(() => {
     if (!chatInstanceId || !socketRef?.current) return;
 
@@ -617,9 +544,6 @@ export const useChatMessages = ({
       socketStatus === "disconnected" && !isAdmin && state.messages.length > 0;
 
     if (shouldReconnect) {
-      console.log(
-        "[AISmarttalk] Attempting socket reconnection with existing messages"
-      );
       try {
         if (
           socketRef.current.disconnect &&
@@ -673,13 +597,12 @@ export const useChatMessages = ({
 
     showTemporaryToolState("Sending...", "loading");
 
-    // Generate a stable ID for this message for better tracking/deduplication
     const messageId = `temp-${user.id || "anonymous"}-${Date.now()}`;
 
     const userMessage: FrontChatMessage = {
       id: messageId,
       text: messageText,
-      isSent: true, // Always mark messages created by the user through UI as sent
+      isSent: true,
       chatInstanceId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -691,8 +614,6 @@ export const useChatMessages = ({
       },
     };
 
-    // CRITICAL: Update lastMessageReceivedRef to prevent API fetch after message is sent
-    // This marks that we just received a message (our own) and don't need to fetch again
     if (socketRef.current) {
       const now = Date.now();
       socketRef.current._lastMessageTime = now;
@@ -745,7 +666,6 @@ export const useChatMessages = ({
       });
 
       if (!response.ok) {
-        // Use the centralized error handler for API errors
         const { message, errorType, statusCode } = handleApiError(
           response.status,
           `Error sending message: ${response.status}`
@@ -753,7 +673,6 @@ export const useChatMessages = ({
 
         showTemporaryToolState("Error", "error");
 
-        // Remove the temporary message if there was an error
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
           payload: {
@@ -764,7 +683,6 @@ export const useChatMessages = ({
         throw new Error(`${errorType} error (${statusCode}): ${message}`);
       }
 
-      // Clear any previous errors upon successful message send
       clearError();
 
       const data = await response.json();
@@ -837,11 +755,9 @@ export const useChatMessages = ({
         return;
       }
 
-      // Update local state for the current chat instance
       if (targetInstanceId === chatInstanceId) {
         setChatTitle(newTitle);
 
-        // Dispatch UPDATE_TITLE action to update the title in the reducer state
         dispatch({
           type: ChatActionTypes.UPDATE_TITLE,
           payload: {
@@ -851,7 +767,6 @@ export const useChatMessages = ({
         });
       }
 
-      // Ensure conversations are properly loaded before updating
       if (conversations.length === 0) {
         try {
           const stored = localStorage.getItem(
@@ -869,7 +784,6 @@ export const useChatMessages = ({
         }
       }
 
-      // First, make sure the title is updated in local storage history
       try {
         const storedHistory = loadConversationHistory(targetInstanceId);
         if (storedHistory && storedHistory.messages) {
@@ -885,7 +799,6 @@ export const useChatMessages = ({
             }
           );
         } else {
-          // If we can't find conversation history but we have current messages
           if (
             targetInstanceId === chatInstanceId &&
             state.messages.length > 0
@@ -907,14 +820,12 @@ export const useChatMessages = ({
         console.error("[AI Smarttalk] Error updating conversation history:", e);
       }
 
-      // Then update the conversations list
       setConversations((prev) => {
         const existingConversation = prev.find(
           (c) => c.id === targetInstanceId
         );
 
         if (!existingConversation) {
-          // If conversation doesn't exist in list, create it
           const newConversationItem = {
             id: targetInstanceId,
             title: newTitle,
@@ -924,7 +835,6 @@ export const useChatMessages = ({
 
           const updated = [newConversationItem, ...prev];
 
-          // Save to localStorage
           localStorage.setItem(
             `chat-conversations-${chatModelId}`,
             JSON.stringify(updated)
@@ -932,7 +842,6 @@ export const useChatMessages = ({
 
           return updated;
         } else {
-          // Update existing conversation
           const updated = prev.map((conv) =>
             conv.id === targetInstanceId
               ? {
@@ -943,7 +852,6 @@ export const useChatMessages = ({
               : conv
           );
 
-          // Save to localStorage
           localStorage.setItem(
             `chat-conversations-${chatModelId}`,
             JSON.stringify(updated)
@@ -953,7 +861,6 @@ export const useChatMessages = ({
         }
       });
 
-      // Force a direct update to localStorage title as well
       localStorage.setItem(`chat-${targetInstanceId}-title`, newTitle);
     },
     [chatInstanceId, chatModelId, dispatch, conversations, state.messages]
@@ -961,9 +868,8 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
-      // Store the current instance ID before getting a new one
       const oldInstanceId = chatInstanceId;
-      
+
       const newInstanceId = await getNewInstance();
 
       if (!newInstanceId) {
@@ -974,29 +880,23 @@ export const useChatMessages = ({
         return null;
       }
 
-      // First, reset the messages in the current chat instance if switching from an existing one
       if (oldInstanceId && oldInstanceId !== newInstanceId) {
-        // Clear cached messages for the new instance to ensure a clean start
         clearCachedMessages(newInstanceId);
       }
 
-      // Update the instance ID
       setChatInstanceId(newInstanceId);
       localStorage.setItem(storageKey, newInstanceId);
 
-      // Reset initialization state for the new chat
       hasInitializedRef.current = true;
-      
-      // Force clear the messages cache again (just to be sure)
+
       clearCachedMessages(newInstanceId);
-      
-      // Explicitly reset messages with resetMessages flag to ensure proper clearing
+
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
-        payload: { 
-          chatInstanceId: newInstanceId, 
+        payload: {
+          chatInstanceId: newInstanceId,
           messages: [],
-          resetMessages: true  // Explicitly mark as reset for new chat
+          resetMessages: true,
         },
       });
 
@@ -1026,7 +926,6 @@ export const useChatMessages = ({
         image: user.image ?? "",
       });
 
-      // Clear any previous errors when creating a new chat successfully
       clearError();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1034,7 +933,6 @@ export const useChatMessages = ({
       return newInstanceId;
     } catch (error) {
       console.error("Error creating new chat:", error);
-      // Handle the error with detailed information for developers
       setError(
         error instanceof Error ? error.message : "Unknown error creating chat"
       );
@@ -1042,7 +940,14 @@ export const useChatMessages = ({
       setErrorCode(error instanceof Response ? error.status : null);
       return null;
     }
-  }, [chatModelId, dispatch, storageKey, clearError, chatInstanceId, clearCachedMessages]);
+  }, [
+    chatModelId,
+    dispatch,
+    storageKey,
+    clearError,
+    chatInstanceId,
+    clearCachedMessages,
+  ]);
 
   useEffect(() => {
     if (state.messages.length > 0) {
@@ -1070,31 +975,30 @@ export const useChatMessages = ({
     };
   }, []);
 
-  // When component mounts, try to load messages from localStorage
   useEffect(() => {
     if (chatInstanceId && !hasInitializedRef.current) {
       hasInitializedRef.current = true;
-      
-      // Skip loading if we already have messages in state
+
       if (state.messages.length > 0) {
-        console.log('[AISmarttalk] Already have messages in state, skipping localStorage load:', state.messages.length);
         return;
       }
-      
-      // Load from localStorage
+
       const savedConversation = loadConversationHistory(chatInstanceId);
-      
-      if (savedConversation && savedConversation.messages && savedConversation.messages.length > 0) {
-        // Cache messages for future use
+
+      if (
+        savedConversation &&
+        savedConversation.messages &&
+        savedConversation.messages.length > 0
+      ) {
         cachedMessagesRef.current[chatInstanceId] = savedConversation.messages;
-        
+
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
-          payload: { 
-            chatInstanceId, 
+          payload: {
+            chatInstanceId,
             messages: savedConversation.messages,
             userId: user?.id,
-            userEmail: user?.email
+            userEmail: user?.email,
           },
         });
       }
@@ -1105,28 +1009,27 @@ export const useChatMessages = ({
     try {
       if (chatInstanceId) {
         localStorage.removeItem(`chatMessages[${chatInstanceId}]`);
-        
-        // Clear cached messages for this instance
+
         if (cachedMessagesRef.current[chatInstanceId]) {
           delete cachedMessagesRef.current[chatInstanceId];
         }
-        
+
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
-          payload: { 
+          payload: {
             chatInstanceId,
             messages: [],
-            resetMessages: true  // Explicitly mark as reset
+            resetMessages: true,
           },
         });
-        
+
         dispatch({
           type: ChatActionTypes.UPDATE_TITLE,
           payload: { title: "💬" },
         });
       }
     } catch (err) {
-      console.error('[AISmartTalk] Error resetting chat:', err);
+      console.error("[AISmartTalk] Error resetting chat:", err);
     }
   }, [chatInstanceId, dispatch]);
 
@@ -1134,7 +1037,6 @@ export const useChatMessages = ({
     messages: state.messages,
     notificationCount: state.notificationCount,
     suggestions: state.suggestions,
-    // Enhanced error information for developers
     error: {
       message: error,
       type: errorType,

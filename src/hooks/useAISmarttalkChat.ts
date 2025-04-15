@@ -20,7 +20,6 @@ interface UseAISmarttalkProps {
   debug?: boolean;
 }
 
-// Debug logger utility
 const createLogger = (enabled: boolean, prefix: string) => {
   return {
     log: (...args: any[]) => {
@@ -103,11 +102,9 @@ export const useAISmarttalkChat = ({
   const lastSocketStatusRef = useRef<string>("");
   const lastApiCallTimestampRef = useRef<number>(0);
   
-  // Create logger
-  const logger = useMemo(() => createLogger(debug, 'CHAT'), [debug]);
+    const logger = useMemo(() => createLogger(debug, 'CHAT'), [debug]);
   
-  // Log initialization and props
-  useEffect(() => {
+    useEffect(() => {
     cycleCountRef.current++;
     
     logger.group(`Initialization (render #${cycleCountRef.current})`);
@@ -119,11 +116,9 @@ export const useAISmarttalkChat = ({
     };
   }, [logger, chatModelId, lang, config, debug]);
 
-  // Memoize user-related hooks to prevent unnecessary re-renders
-  const { user, setUser, updateUserFromLocalStorage, logout, initialUser } = useUser(config?.user);
+    const { user, setUser, updateUserFromLocalStorage, logout, initialUser } = useUser(config?.user);
 
-  // Log user changes
-  useEffect(() => {
+    useEffect(() => {
     logger.log('User state changed:', { 
       id: user.id, 
       email: user.email, 
@@ -132,20 +127,17 @@ export const useAISmarttalkChat = ({
     });
   }, [user, logger]);
 
-  // Memoize chat model with useMemo to prevent unnecessary updates
-  const { chatModel, setChatModel } = useChatModel({ 
+    const { chatModel, setChatModel } = useChatModel({ 
     chatModelId, 
     config 
   });
 
-  // Get features configuration with defaults
-  const features = useMemo(() => ({
+    const features = useMemo(() => ({
     ...defaultFeatures,
     ...config?.features,
   }), [config?.features]);
 
-  // Memoize chat messages dependencies with stable references
-  const chatMessagesProps = useMemo(() => ({
+    const chatMessagesProps = useMemo(() => ({
     chatModelId,
     user,
     setUser,
@@ -175,16 +167,14 @@ export const useAISmarttalkChat = ({
     createNewChat
   } = useChatMessages(chatMessagesProps);
 
-  // Log socket status changes
-  useEffect(() => {
+    useEffect(() => {
     if (socketStatus !== lastSocketStatusRef.current) {
       logger.log(`Socket status changed: ${lastSocketStatusRef.current} -> ${socketStatus}`);
       lastSocketStatusRef.current = socketStatus;
     }
   }, [socketStatus, logger]);
 
-  // Log message updates
-  useEffect(() => {
+    useEffect(() => {
     logger.log(`Messages updated: ${messages.length} messages total`);
     if (messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
@@ -198,8 +188,7 @@ export const useAISmarttalkChat = ({
     }
   }, [messages, logger, user.id]);
 
-  // Wrap fetchMessagesFromApi with logging
-  const fetchMessagesWithLogging = useCallback(() => {
+    const fetchMessagesWithLogging = useCallback(() => {
     const now = Date.now();
     const timeSinceLastCall = now - lastApiCallTimestampRef.current;
     
@@ -209,30 +198,25 @@ export const useAISmarttalkChat = ({
     logger.log('Socket status:', socketStatus);
     logger.log('Chat instance ID:', chatInstanceId);
     
-    // Update timestamp before call
-    lastApiCallTimestampRef.current = now;
+        lastApiCallTimestampRef.current = now;
     
-    // Call the original function
-    fetchMessagesFromApi();
+        fetchMessagesFromApi();
     
     logger.groupEnd();
   }, [fetchMessagesFromApi, messages.length, socketStatus, chatInstanceId, logger]);
 
-  // Add new function to handle both chat instance and message selection
-  const handleConversationSelect = useCallback(async (id: string) => {
+    const handleConversationSelect = useCallback(async (id: string) => {
     try {
       logger.group('Conversation Select');
       logger.log('Selecting conversation:', id);
       
-      // Don't do anything if we're already in this conversation
-      if (chatInstanceId === id && messages.length > 0) {
+            if (chatInstanceId === id && messages.length > 0) {
         logger.log('Already in this conversation, not switching');
         logger.groupEnd();
         return;
       }
       
-      // First select the conversation which will handle both instance and message selection
-      await selectConversation(id);
+            await selectConversation(id);
       
       logger.log('Conversation selection complete');
       logger.groupEnd();
@@ -243,12 +227,10 @@ export const useAISmarttalkChat = ({
     }
   }, [selectConversation, logger, chatInstanceId, messages.length]);
 
-  // Add effect to handle initial conversation restoration
-  useEffect(() => {
+    useEffect(() => {
     if (!chatInstanceId) return;
     
-    // Skip if we already have messages to prevent flickering
-    if (messages.length > 0) {
+        if (messages.length > 0) {
       logger.log('Already have messages, skipping conversation restore');
       return;
     }
@@ -268,11 +250,9 @@ export const useAISmarttalkChat = ({
       logger.group('Logout Process');
       logger.log('Starting logout, current user:', { id: user.id, email: user.email });
       
-      // If we have a current chat instance, clean up its storage
-      if (chatInstanceId) {
+            if (chatInstanceId) {
         logger.log('Cleaning up chat instance:', chatInstanceId);
-        // Clean up chat history for the current conversation
-        try {
+                try {
           localStorage.removeItem(`chat-${chatInstanceId}-history`);
           localStorage.removeItem(`chatMessages[${chatInstanceId}]`);
           localStorage.removeItem(`chat-${chatInstanceId}-suggestions`);
@@ -281,17 +261,14 @@ export const useAISmarttalkChat = ({
         }
       }
       
-      // First, log out the user (resets to anonymous)
-      logger.log('Executing logout');
+            logger.log('Executing logout');
       logout();
       
-      // Then create a new conversation for the anonymous user
-      logger.log('Creating new conversation for anonymous user');
+            logger.log('Creating new conversation for anonymous user');
       const newChatId = await createNewChat();
       logger.log('Created new chat ID:', newChatId);
       
-      // Select the new conversation
-      if (newChatId) {
+            if (newChatId) {
         logger.log('Selecting new conversation');
         await selectConversation(newChatId);
       }
@@ -305,8 +282,7 @@ export const useAISmarttalkChat = ({
     }
   }, [logout, createNewChat, selectConversation, chatInstanceId, user, logger]);
 
-  // Wrap onSend with logging
-  const onSendWithLogging = useCallback((messageText: string) => {
+    const onSendWithLogging = useCallback((messageText: string) => {
     logger.group('Send Message');
     logger.log('Message text:', messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''));
     logger.log('Current socket status:', socketStatus);
@@ -318,20 +294,17 @@ export const useAISmarttalkChat = ({
   }, [onSend, socketStatus, user, logger]);
 
   return {
-    // Chat instance related
-    chatInstanceId,
+        chatInstanceId,
     createNewChat,
     selectConversation,
     updateChatTitle,    
 
-    // User related
-    user,
+        user,
     setUser,
     updateUserFromLocalStorage,
     logout: handleLogout,
 
-    // Messages related
-    messages,
+        messages,
     onSend: onSendWithLogging,
     isLoading,
     socketStatus,
@@ -339,28 +312,22 @@ export const useAISmarttalkChat = ({
     conversationStarters,
     suggestions,
 
-    // Chat model related
-    chatModel,
+        chatModel,
     setChatModel,
     error,
 
-    // Tools and features
-    activeTool,
+        activeTool,
     conversations,
     setConversations,
     fetchMessagesFromApi: fetchMessagesWithLogging,
 
-    // Features
-    features,
+        features,
 
-    // Canva functions
-    canvasHistory,
+        canvasHistory,
 
-    // New function
-    handleConversationSelect,
+        handleConversationSelect,
     
-    // Debug functions
-    logger,
+        logger,
     debugEnabled: debug
   };
 };
