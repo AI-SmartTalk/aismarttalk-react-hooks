@@ -250,6 +250,11 @@ export const useChatMessages = ({
           return;
         }
 
+        if (id === chatInstanceId) {
+          // Si on sélectionne la conversation actuelle, ne rien faire
+          return;
+        }
+
         clearError();
         
         dispatch({
@@ -265,6 +270,9 @@ export const useChatMessages = ({
         
         setChatInstanceId(id);
         localStorage.setItem(storageKey, id);
+
+        // Marquer comme initialisé pour empêcher les appels API à répétition
+        hasInitializedRef.current = false;
 
         try {
           const existingConversation = conversations.find(conv => conv.id === id);
@@ -289,6 +297,7 @@ export const useChatMessages = ({
               }
               
               cachedMessagesRef.current[id] = strictMessages;
+              hasInitializedRef.current = true;
               return;
             }
           }
@@ -314,10 +323,12 @@ export const useChatMessages = ({
               }
               
               cachedMessagesRef.current[id] = strictMessages;
+              hasInitializedRef.current = true;
               return;
             }
           }
           
+          // Uniquement appeler l'API s'il n'y a pas de données en cache
           const response = await fetch(`${finalApiUrl}/api/chat/history/${id}`, {
             headers: finalApiToken
               ? { Authorization: `Bearer ${finalApiToken}` }
@@ -379,6 +390,7 @@ export const useChatMessages = ({
               },
             });
           }
+          hasInitializedRef.current = true;
         } catch (error) {
           console.error("Error fetching conversation:", error);
           dispatch({
@@ -389,6 +401,7 @@ export const useChatMessages = ({
               resetMessages: true
             },
           });
+          hasInitializedRef.current = true;
         }
       } catch (error) {
         console.error("Error selecting conversation:", error);
@@ -399,6 +412,7 @@ export const useChatMessages = ({
         );
         setErrorType("network");
         setErrorCode(null);
+        hasInitializedRef.current = true;
       }
     },
     [
@@ -413,7 +427,8 @@ export const useChatMessages = ({
       user?.email,
       clearCachedMessages,
       setChatTitle,
-      conversations
+      conversations,
+      chatInstanceId
     ]
   );
 
@@ -464,22 +479,23 @@ export const useChatMessages = ({
       fetchMessagesFromApi();
     }
   }, [chatInstanceId]);
+  
+  // Separate useEffect for loading conversations from localStorage - run only once
   useEffect(() => {
-    const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
-    if (stored) {
+    const loadConversationsFromStorage = () => {
+      const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
+      if (!stored) return;
+      
       try {
         let parsedConversations = JSON.parse(stored);
         
         // Ensure all conversations have proper ownership information
         parsedConversations = parsedConversations.map((conv: any) => {
-          // If messages exist and there's at least one message
           if (conv.messages && conv.messages.length > 0) {
-            // Check if any message has a user with 'anonymous' or current user ID
             const hasOwner = conv.messages.some((msg: any) => 
               msg.user && (msg.user.id === 'anonymous' || msg.user.id === user?.id)
             );
             
-            // If no owner message found, add one
             if (!hasOwner) {
               const ownerMessage = {
                 id: `system-owner-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -512,7 +528,6 @@ export const useChatMessages = ({
             return false;
           }
           
-          // Check if user has sent at least one message in this conversation
           return conv.messages.some((msg: any) => 
             msg.isSent === true && 
             msg.user && 
@@ -524,8 +539,15 @@ export const useChatMessages = ({
       } catch (e) {
         console.error("Error loading conversations:", e);
       }
-    }
-  }, [chatModelId, user?.id, user?.email, user?.name, user?.image]);
+    };
+    
+    // Load conversations only once at initialization
+    const initialLoadTimeout = setTimeout(() => {
+      loadConversationsFromStorage();
+    }, 0);
+    
+    return () => clearTimeout(initialLoadTimeout);
+  }, []); // Run only once when the component mounts
 
   const debouncedTypingUsersUpdate = debounce((data: TypingUser) => {
     setTypingUsers((prev) => {
@@ -550,6 +572,9 @@ export const useChatMessages = ({
     if (hasInitializedRef.current) {
       return;
     }
+
+    // Marquer comme initialisé AVANT l'appel API pour éviter les appels multiples
+    hasInitializedRef.current = true;
 
     try {
       const headers: Record<string, string> = {
@@ -620,8 +645,6 @@ export const useChatMessages = ({
           setChatTitle(data.title);
         }
       }
-
-      hasInitializedRef.current = true;
     } catch (error) {
       console.error("Error fetching messages:", error);
       setApiError(
@@ -631,7 +654,17 @@ export const useChatMessages = ({
         "network"
       );
     }
-  }, [chatInstanceId, finalApiUrl, user, state.messages.length]);
+  }, [
+    chatInstanceId,
+    finalApiUrl,
+    finalApiToken,
+    user,
+    handleApiError,
+    clearError,
+    setApiError,
+    setChatTitle,
+    dispatch
+  ]);
 
   const { addMessage } = useMessageHandler(
     chatInstanceId,
@@ -666,7 +699,7 @@ export const useChatMessages = ({
     if (!chatInstanceId || !socketRef?.current) return;
 
     const shouldReconnect =
-      socketStatus === "disconnected" && !isAdmin && state.messages.length > 0;
+      socketStatus === "disconnected" && !isAdmin;
 
     if (shouldReconnect) {
       try {
@@ -687,7 +720,7 @@ export const useChatMessages = ({
         console.error("Error reconnecting socket:", err);
       }
     }
-  }, [chatInstanceId, socketStatus, isAdmin, state.messages.length > 0]);
+  }, [chatInstanceId, socketStatus, isAdmin]);
 
   const dismissActiveTool = useCallback((delay = 5000) => {
     if (activeToolTimeoutRef.current) {
@@ -747,7 +780,7 @@ export const useChatMessages = ({
       }
     }
 
-    addMessage(userMessage);
+    // Pas besoin d'ajouter le message ici - il sera reçu via le websocket
 
     try {
       showTemporaryToolState("🧠", "thinking");
@@ -778,7 +811,7 @@ export const useChatMessages = ({
           }
         : {
             message: messageText,
-            messages: [...state.messages, userMessage],
+            messages: state.messages,
             chatInstanceId,
             chatModelId,
             lang,
@@ -795,72 +828,17 @@ export const useChatMessages = ({
           response.status,
           `Error sending message: ${response.status}`
         );
-
-        showTemporaryToolState("Error", "error");
-
-        dispatch({
-          type: ChatActionTypes.SET_MESSAGES,
-          payload: {
-            chatInstanceId,
-            messages: state.messages.filter((msg) => msg.id !== userMessage.id),
-          },
-        });
+        
         throw new Error(`${errorType} error (${statusCode}): ${message}`);
       }
 
       clearError();
 
       const data = await response.json();
-      const { message } = data;
-
-      const updatedMessages = [...state.messages, userMessage];
-
-      saveConversationHistory(
-        chatInstanceId,
-        chatTitle || userMessage.text.slice(0, 50),
-        updatedMessages,
-        {
-          id: user.id ?? "",
-          email: user.email ?? "",
-          name: user.name ?? "",
-          image: user.image ?? "",
-        }
-      );
-
-      setConversations((prev) => {
-        const existing = prev.findIndex((c) => c.id === chatInstanceId);
-        const newConversation: ChatHistoryItem = {
-          id: chatInstanceId,
-          title: chatTitle || userMessage.text.slice(0, 50),
-          messages: updatedMessages,
-          lastUpdated: new Date().toISOString(),
-        };
-
-        let updated;
-        if (existing !== -1) {
-          updated = [...prev];
-          updated[existing] = newConversation;
-        } else {
-          updated = [newConversation, ...prev];
-        }
-
-        localStorage.setItem(
-          `chat-conversations-${chatModelId}`,
-          JSON.stringify(updated)
-        );
-        return updated;
-      });
+      // Le message est géré par le websocket, pas besoin de le mettre à jour ici
     } catch (error) {
       console.error("Error sending message:", error);
       showTemporaryToolState("Error", "error");
-
-      dispatch({
-        type: ChatActionTypes.SET_MESSAGES,
-        payload: {
-          chatInstanceId,
-          messages: state.messages.filter((msg) => msg.id !== userMessage.id),
-        },
-      });
     } finally {
       dispatch({
         type: ChatActionTypes.SET_LOADING,
