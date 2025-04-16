@@ -506,6 +506,20 @@ export const useChatMessages = ({
           return conv;
         });
         
+        // Filter out conversations where the user hasn't sent any messages
+        parsedConversations = parsedConversations.filter((conv: any) => {
+          if (!conv.messages || conv.messages.length === 0) {
+            return false;
+          }
+          
+          // Check if user has sent at least one message in this conversation
+          return conv.messages.some((msg: any) => 
+            msg.isSent === true && 
+            msg.user && 
+            (msg.user.id === user?.id || msg.user.id === 'anonymous')
+          );
+        });
+        
         setConversations(parsedConversations);
       } catch (e) {
         console.error("Error loading conversations:", e);
@@ -897,33 +911,31 @@ export const useChatMessages = ({
 
       try {
         const storedHistory = loadConversationHistory(targetInstanceId);
-        if (storedHistory.messages.length > 0) {
-          saveConversationHistory(
-            targetInstanceId,
-            newTitle,
-            storedHistory.messages,
-            {
-              id: user.id ?? "",
-              email: user.email ?? "",
-              name: user.name ?? "",
-              image: user.image ?? "",
-            }
+        const messagesForUpdate = targetInstanceId === chatInstanceId && state.messages.length > 0 
+          ? state.messages 
+          : storedHistory.messages;
+        
+        // Only update if there are messages and at least one is from the user
+        if (messagesForUpdate.length > 0) {
+          const userHasSentMessage = messagesForUpdate.some(msg => 
+            msg.isSent === true && 
+            msg.user && 
+            (msg.user.id === user.id || msg.user.id === 'anonymous')
           );
-        } else if (
-          targetInstanceId === chatInstanceId &&
-          state.messages.length > 0
-        ) {
-          saveConversationHistory(
-            targetInstanceId,
-            newTitle,
-            state.messages,
-            {
-              id: user.id ?? "",
-              email: user.email ?? "",
-              name: user.name ?? "",
-              image: user.image ?? "",
-            }
-          );
+          
+          if (userHasSentMessage) {
+            saveConversationHistory(
+              targetInstanceId,
+              newTitle,
+              messagesForUpdate,
+              {
+                id: user.id ?? "",
+                email: user.email ?? "",
+                name: user.name ?? "",
+                image: user.image ?? "",
+              }
+            );
+          }
         }
       } catch (e) {
         console.error("[AI Smarttalk] Error updating conversation history:", e);
@@ -933,12 +945,31 @@ export const useChatMessages = ({
         const existingConversation = prev.find(
           (c) => c.id === targetInstanceId
         );
+        
+        const targetMessages = targetInstanceId === chatInstanceId ? state.messages : 
+          (existingConversation?.messages || []);
+        
+        // Only update if user has sent at least one message
+        const userHasSentMessage = targetMessages.some(msg => 
+          msg.isSent === true && 
+          msg.user && 
+          (msg.user.id === user.id || msg.user.id === 'anonymous')
+        );
+        
+        if (!userHasSentMessage && targetMessages.length > 0) {
+          return prev; // Don't update if no user message
+        }
 
         if (!existingConversation) {
+          // Only add conversation if it has user messages
+          if (!userHasSentMessage && targetMessages.length > 0) {
+            return prev;
+          }
+          
           const newConversationItem = {
             id: targetInstanceId,
             title: newTitle,
-            messages: targetInstanceId === chatInstanceId ? state.messages : [],
+            messages: targetMessages,
             lastUpdated: new Date().toISOString(),
           };
 
@@ -1168,13 +1199,28 @@ export const useChatMessages = ({
     chatTitle,
     conversations,
     setConversations,
-    saveConversationHistory: (messages: FrontChatMessage[], title: string) =>
-      saveConversationHistory(chatInstanceId, title, messages, {
-        id: user.id ?? "",
-        email: user.email ?? "",
-        name: user.name ?? "",
-        image: user.image ?? "",
-      }),
+    saveConversationHistory: (messages: FrontChatMessage[], title: string) => {
+      // Don't save empty conversations to history
+      if (!messages || messages.length === 0) {
+        return;
+      }
+      
+      // Only save if the user has sent at least one message
+      const userHasSentMessage = messages.some(msg => 
+        msg.isSent === true && 
+        msg.user && 
+        (msg.user.id === user.id || msg.user.id === 'anonymous')
+      );
+      
+      if (userHasSentMessage) {
+        saveConversationHistory(chatInstanceId, title, messages, {
+          id: user.id ?? "",
+          email: user.email ?? "",
+          name: user.name ?? "",
+          image: user.image ?? "",
+        });
+      }
+    },
     canvas: canvasHistory.canvas,
     canvasHistory,
     isLoading: state.isLoading,
