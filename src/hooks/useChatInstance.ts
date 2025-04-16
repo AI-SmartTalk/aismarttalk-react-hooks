@@ -79,9 +79,7 @@ export const useChatInstance = ({
 
   const initializeChatInstance = async () => {   
     try {
-      if (isChanging) {
-        return;
-      }
+      if (isChanging) return null;
   
       setIsChanging(true);
       await cleanup();
@@ -112,28 +110,29 @@ export const useChatInstance = ({
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to create chat instance: ${response.status} - ${errorText}`);
+        setIsChanging(false);
+        return null;
       }
 
       const data = await response.json();
       const instanceId = data.chatInstanceId;
+      
+      if (!instanceId) {
+        setIsChanging(false);
+        return null;
+      }
 
       try {
         localStorage.setItem(storageKey, instanceId);
-      } catch (err) {
-        console.error('Error saving to localStorage:', err);
-      }
+      } catch (err) {}
 
       setChatInstanceId(instanceId);
       setIsChanging(false);
       setError(null);
       return instanceId;
     } catch (err) {
-      console.error("Error in initializeChatInstance:", err);
-      setError(err instanceof Error ? err : new Error("Failed to create chat instance"));
       setIsChanging(false);
-      throw err;
+      return null;
     }
   };
 

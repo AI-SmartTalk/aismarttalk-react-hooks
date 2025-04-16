@@ -868,42 +868,38 @@ export const useChatMessages = ({
 
   const createNewChat = useCallback(async () => {
     try {
+      // Store the current instance ID before getting a new one
       const oldInstanceId = chatInstanceId;
-
+      
+      // Get a new instance ID directly
       const newInstanceId = await getNewInstance();
+      if (!newInstanceId) return null;
 
-      if (!newInstanceId) {
-        setError("Failed to create new chat instance");
-        setErrorType("server");
-        setErrorCode(500);
-        console.error("Failed to create new chat instance");
-        return null;
-      }
-
-      if (oldInstanceId && oldInstanceId !== newInstanceId) {
-        clearCachedMessages(newInstanceId);
-      }
-
+      // Update the instance ID 
       setChatInstanceId(newInstanceId);
       localStorage.setItem(storageKey, newInstanceId);
 
-      hasInitializedRef.current = true;
+      // Clear cached messages for the new instance
+      if (cachedMessagesRef.current[newInstanceId]) {
+        delete cachedMessagesRef.current[newInstanceId];
+      }
 
-      clearCachedMessages(newInstanceId);
-
+      // Reset messages for the new chat
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
-        payload: {
-          chatInstanceId: newInstanceId,
+        payload: { 
+          chatInstanceId: newInstanceId, 
           messages: [],
-          resetMessages: true,
+          resetMessages: true
         },
       });
 
+      // Set default title
       const defaultTitle = "💬 Nouvelle conversation";
       setChatTitle(defaultTitle);
 
-      const newConversation: ChatHistoryItem = {
+      // Add to conversations list
+      const newConversation = {
         id: newInstanceId,
         title: defaultTitle,
         messages: [],
@@ -919,35 +915,11 @@ export const useChatMessages = ({
         return updated;
       });
 
-      saveConversationHistory(newInstanceId, defaultTitle, [], {
-        id: user.id ?? "",
-        email: user.email ?? "",
-        name: user.name ?? "",
-        image: user.image ?? "",
-      });
-
-      clearError();
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
       return newInstanceId;
     } catch (error) {
-      console.error("Error creating new chat:", error);
-      setError(
-        error instanceof Error ? error.message : "Unknown error creating chat"
-      );
-      setErrorType("server");
-      setErrorCode(error instanceof Response ? error.status : null);
       return null;
     }
-  }, [
-    chatModelId,
-    dispatch,
-    storageKey,
-    clearError,
-    chatInstanceId,
-    clearCachedMessages,
-  ]);
+  }, [chatModelId, dispatch, storageKey, chatInstanceId, getNewInstance, setChatTitle]);
 
   useEffect(() => {
     if (state.messages.length > 0) {

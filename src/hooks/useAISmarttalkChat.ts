@@ -206,26 +206,12 @@ export const useAISmarttalkChat = ({
   }, [fetchMessagesFromApi, messages.length, socketStatus, chatInstanceId, logger]);
 
     const handleConversationSelect = useCallback(async (id: string) => {
-    try {
-      logger.group('Conversation Select');
-      logger.log('Selecting conversation:', id);
-      
-            if (chatInstanceId === id && messages.length > 0) {
-        logger.log('Already in this conversation, not switching');
-        logger.groupEnd();
-        return;
-      }
-      
-            await selectConversation(id);
-      
-      logger.log('Conversation selection complete');
-      logger.groupEnd();
-    } catch (error) {
-      logger.error('Error selecting conversation:', error);
-      setError(error instanceof Error ? error : new Error('Failed to select conversation'));
-      logger.groupEnd();
-    }
-  }, [selectConversation, logger, chatInstanceId, messages.length]);
+    // Skip if already in this conversation
+    if (chatInstanceId === id && messages.length > 0) return;
+    
+    // Direct call to select conversation
+    await selectConversation(id);
+  }, [selectConversation, chatInstanceId, messages.length]);
 
     useEffect(() => {
     if (!chatInstanceId) return;
