@@ -207,26 +207,23 @@ export const useAISmarttalkChat = ({
 
     const handleConversationSelect = useCallback(async (id: string) => {
     // Skip if already in this conversation
-    if (chatInstanceId === id && messages.length > 0) return;
+    if (chatInstanceId === id) return;
     
-    // Direct call to select conversation
+    // Direct call to select conversation, this will reset messages internally
     await selectConversation(id);
-  }, [selectConversation, chatInstanceId, messages.length]);
+  }, [selectConversation, chatInstanceId]);
 
     useEffect(() => {
     if (!chatInstanceId) return;
     
-        if (messages.length > 0) {
-      logger.log('Already have messages, skipping conversation restore');
-      return;
-    }
-    
+    // Find the conversation
     const conversation = conversations.find(conv => conv.id === chatInstanceId);
-    if (conversation) {
-      logger.log('Restoring conversation:', chatInstanceId);
+    
+    // Only restore if we found the conversation and don't have messages
+    if (conversation && messages.length === 0) {
       selectConversation(chatInstanceId);
     }
-  }, [chatInstanceId, conversations, selectConversation, logger, messages.length]);
+  }, [chatInstanceId, conversations, selectConversation, messages.length]);
 
   /**
    * Logs out the current user and creates a new conversation for anonymous user

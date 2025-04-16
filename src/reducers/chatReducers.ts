@@ -30,7 +30,7 @@ const saveMessagesToLocalStorage = (
 ) => {
   try {
     const history = loadConversationHistory(chatInstanceId);
-    const title = history?.title || "💬";
+    const title = history.title || "💬";
 
     saveConversationHistory(chatInstanceId, title, messages);
   } catch (error) {
@@ -108,11 +108,34 @@ export const chatReducer = (
         return state;
       }
 
-      if (action.payload.messages.length === 0 && state.messages.length > 0) {
-        if (action.payload.resetMessages) {
+      if (
+        state.messages.length > 0 &&
+        state.messages[0]?.chatInstanceId !== action.payload.chatInstanceId
+      ) {
+        if (action.payload.messages.length > 0) {
+          debouncedSaveMessagesToLocalStorage(
+            action.payload.messages,
+            action.payload.chatInstanceId || ""
+          );
+          return { ...state, messages: action.payload.messages.slice(-50) };
+        }
+
+        return { ...state, messages: [] };
+      }
+
+      if (action.payload.resetMessages) {
+        if (action.payload.messages.length === 0) {
           return { ...state, messages: [] };
         }
 
+        debouncedSaveMessagesToLocalStorage(
+          action.payload.messages,
+          action.payload.chatInstanceId || ""
+        );
+        return { ...state, messages: action.payload.messages.slice(-50) };
+      }
+
+      if (action.payload.messages.length === 0 && state.messages.length > 0) {
         return state;
       }
 

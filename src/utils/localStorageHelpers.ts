@@ -61,29 +61,47 @@ export function saveConversationHistory(
   messages: FrontChatMessage[],
   currentUser?: {id: string, email: string, name: string, image?: string}
 ): void {
-  let processedMessages = [...messages];
+  // Make a deep copy of messages to avoid mutating the original array
+  let processedMessages = JSON.parse(JSON.stringify(messages));
   
-  // CORRECTION CRITIQUE: Vérifier si la conversation a un propriétaire non-bot
+  // Identify the conversation owner based on existing messages
   const conversationOwner = identifyConversationOwner(messages);
   
-  // Si tous les messages sont de bots et que nous avons un utilisateur courant disponible
-  if (!conversationOwner && currentUser && messages.length > 0) {      
-    // Ajouter un message système invisible pour définir l'utilisateur courant comme propriétaire
+  // If no owner is identified and we have a current user, make them the owner
+  if (!conversationOwner && currentUser && messages.length > 0) {
+    // Use 'anonymous' as fallback ID if currentUser.id is empty
+    const userId = currentUser.id || 'anonymous';
+    
+    // Add a system message to establish ownership
     processedMessages.unshift({
       id: `system-owner-${Date.now()}`,
-      text: "Conversation initiée",
+      text: "Conversation initiated",
       isSent: true,
       chatInstanceId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       user: {
-        id: currentUser.id,
+        id: userId,
         email: currentUser.email || '',
-        name: currentUser.name || 'Utilisateur',
+        name: currentUser.name || 'User',
         image: currentUser.image || ''
       }
     });
   }
+  
+  // Ensure every message has a valid user object with at least an ID
+  processedMessages = processedMessages.map((msg: FrontChatMessage) => {
+    if (!msg.user || !msg.user.id) {
+      return {
+        ...msg,
+        user: {
+          ...(msg.user || {}),
+          id: (msg.user && msg.user.id) || 'anonymous'
+        }
+      };
+    }
+    return msg;
+  });
   
   const history = {
     title,
@@ -91,20 +109,60 @@ export function saveConversationHistory(
     lastUpdated: new Date().toISOString(),
   };
   
-  localStorage.setItem(`chat-${chatInstanceId}-history`, JSON.stringify(history));
-  
-  // TRÈS IMPORTANT: Mettre également à jour la sauvegarde dans chatMessages[ID]
-  localStorage.setItem(`chatMessages[${chatInstanceId}]`, JSON.stringify(processedMessages));
+  try {
+    localStorage.setItem(`chat-${chatInstanceId}-history`, JSON.stringify(history));
+    
+    // Also update the legacy storage format for backward compatibility
+    localStorage.setItem(`chatMessages[${chatInstanceId}]`, JSON.stringify(processedMessages));
+  } catch (error) {
+    console.error('Error saving conversation history:', error);
+  }
 }
 
 /**
  * Load conversation history from local storage.
  * @param chatInstanceId - The unique identifier for the chat instance.
- * @returns The conversation history or null if not found.
+ * @returns The conversation history with default values if not found.
  */
 export function loadConversationHistory(
   chatInstanceId: string
-): { title: string; messages: FrontChatMessage[]; lastUpdated: string } | null {
-  const data = localStorage.getItem(`chat-${chatInstanceId}-history`);
-  return data ? JSON.parse(data) : null;
+): { title: string; messages: FrontChatMessage[]; lastUpdated: string } {
+  try {
+    // First try to load from the new format
+    const data = localStorage.getItem(`chat-${chatInstanceId}-history`);
+    
+    if (data) {
+      const parsed = JSON.parse(data);
+      return {
+        title: parsed.title || "💬 Chat",
+        messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+        lastUpdated: parsed.lastUpdated || new Date().toISOString()
+      };
+    }
+    
+    // Fallback to legacy format
+    const legacyData = localStorage.getItem(`chatMessages[${chatInstanceId}]`);
+    if (legacyData) {
+      const messages = JSON.parse(legacyData);
+      return {
+        title: localStorage.getItem(`chat-${chatInstanceId}-title`) || "💬 Chat",
+        messages: Array.isArray(messages) ? messages : [],
+        lastUpdated: new Date().toISOString()
+      };
+    }
+    
+    // Return default empty structure if nothing found
+    return {
+      title: "💬 Chat",
+      messages: [],
+      lastUpdated: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error loading conversation history:", error);
+    return {
+      title: "💬 Chat",
+      messages: [],
+      lastUpdated: new Date().toISOString()
+    };
+  }
 }
