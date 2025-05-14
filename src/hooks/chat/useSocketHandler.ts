@@ -187,18 +187,13 @@ export const useSocketHandler = (
     });
 
     const socket = socketIOClient(finalWsUrl, {
-      query: {
-        chatInstanceId,
-        userId: user.id || initialUser.id,
-        userEmail: user.email || initialUser.email,
-        userName: user.name || initialUser.name,
-      },
-      forceNew: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
       timeout: 20000,
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join', { chatInstanceId });
     });
 
     socketRef.current = socket;
