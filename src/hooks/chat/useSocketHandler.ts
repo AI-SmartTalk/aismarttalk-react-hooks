@@ -18,7 +18,6 @@ import {
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
-import { isMessageDuplicate } from "../../utils/messageUtils";
 
 interface SocketLogger {
   log: (...args: any[]) => void;
@@ -278,12 +277,7 @@ export const useSocketHandler = (
         lastMessageReceivedRef.current = now;
         socketRef.current._lastMessageTime = now;
 
-        if (isMessageDuplicate(data.message, messages)) {
-          logger.log("Skipping duplicate message:", data.message?.id);
-          logger.groupEnd();
-          return;
-        }
-
+        // Check if this is a normal message or a temp message
         const isCurrentUser =
           (user.id &&
             user.id !== "anonymous" &&
@@ -300,6 +294,7 @@ export const useSocketHandler = (
           isCurrentUser || isAnonymousUser
         );
 
+        // Let the reducer handle the message combining logic
         dispatch({
           type: ChatActionTypes.ADD_MESSAGE,
           payload: {
