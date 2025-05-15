@@ -5,6 +5,7 @@ export interface FrontChatMessage {
   chatInstanceId: string;
   created_at: string;
   updated_at: string;
+  isLocallyCreated?: boolean;
   user?: {
     id: number | string;
     email: string;

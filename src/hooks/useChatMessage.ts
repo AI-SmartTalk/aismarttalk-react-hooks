@@ -764,6 +764,7 @@ export const useChatMessages = ({
       chatInstanceId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      isLocallyCreated: true,
       user: {
         id: user.id ?? "",
         email: user.email ?? "",
@@ -855,6 +856,7 @@ export const useChatMessages = ({
           chatInstanceId,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          isLocallyCreated: true,
           user: {
             id: 'ai',
             name: 'AI',

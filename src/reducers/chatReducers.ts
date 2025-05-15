@@ -224,29 +224,30 @@ export const chatReducer = (
       const newMessage = action.payload.message;
       if (!newMessage) return state;
 
-      // Add the message directly without deduplication check
       newMessage.isSent = shouldMessageBeSent(
         newMessage,
         action.payload.userId,
         action.payload.userEmail
       );
       
-      // Check if we're adding a normal message and we have a temp version
-      if (!newMessage.id.startsWith("temp-")) {
-        // Look for a temporary message that matches this one
-        const tempIndex = state.messages.findIndex(
+      // IMPORTANT: We now use isLocallyCreated flag to handle deduplication logic
+      
+      // CASE 1: Message from websocket (not locally created)
+      if (!newMessage.isLocallyCreated) {
+        // Look for a matching locally created message to replace
+        const localIndex = state.messages.findIndex(
           msg => 
-            msg.id.startsWith("temp-") &&
+            msg.isLocallyCreated && 
             msg.text === newMessage.text &&
             msg.user?.id === newMessage.user?.id
         );
         
-        if (tempIndex >= 0) {
-          // Replace the temp message with the permanent one
+        if (localIndex >= 0) {
+          // Replace our local message with the server message
           const updatedMessages = [...state.messages];
-          updatedMessages[tempIndex] = {
+          updatedMessages[localIndex] = {
             ...newMessage,
-            isSent: state.messages[tempIndex].isSent || newMessage.isSent
+            isSent: state.messages[localIndex].isSent || newMessage.isSent
           };
           
           debouncedSaveMessagesToLocalStorage(
@@ -256,9 +257,50 @@ export const chatReducer = (
           
           return { ...state, messages: updatedMessages };
         }
+        
+        // Check if we already have this exact message from the server
+        const hasDuplicate = state.messages.some(
+          msg =>
+            !msg.isLocallyCreated &&
+            msg.text === newMessage.text &&
+            msg.user?.id === newMessage.user?.id
+        );
+        
+        if (hasDuplicate) {
+          // Skip - we already have this message from the server
+          return state;
+        }
+      } 
+      // CASE 2: Locally created message
+      else {
+        // Check if we already have the server version of this message
+        const hasServerVersion = state.messages.some(
+          msg =>
+            !msg.isLocallyCreated &&
+            msg.text === newMessage.text &&
+            msg.user?.id === newMessage.user?.id
+        );
+        
+        if (hasServerVersion) {
+          // Skip this local message since we already have the server version
+          return state;
+        }
+        
+        // Check if we already have this exact local message
+        const hasLocalDuplicate = state.messages.some(
+          msg =>
+            msg.isLocallyCreated &&
+            msg.text === newMessage.text &&
+            msg.user?.id === newMessage.user?.id
+        );
+        
+        if (hasLocalDuplicate) {
+          // Skip duplicate local message
+          return state;
+        }
       }
       
-      // If not replacing a temp message, just add the new message
+      // Add the message if it passed all deduplication checks
       const updatedMessages = [...state.messages, newMessage];
       debouncedSaveMessagesToLocalStorage(
         updatedMessages,
