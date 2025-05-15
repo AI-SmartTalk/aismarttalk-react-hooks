@@ -780,7 +780,16 @@ export const useChatMessages = ({
       }
     }
 
-    // Pas besoin d'ajouter le message ici - il sera reçu via le websocket
+    // Add the message to history immediately
+    dispatch({
+      type: ChatActionTypes.ADD_MESSAGE,
+      payload: { 
+        message: userMessage, 
+        chatInstanceId, 
+        userId: user.id,
+        userEmail: user.email 
+      },
+    });
 
     try {
       showTemporaryToolState("🧠", "thinking");
@@ -835,7 +844,35 @@ export const useChatMessages = ({
       clearError();
 
       const data = await response.json();
-      // Le message est géré par le websocket, pas besoin de le mettre à jour ici
+      
+      // Check if we got an AI response from the API and add it to history
+      if (data.aiMessage && typeof data.aiMessage === 'string') {
+        const aiResponseId = `api-${Date.now()}`;
+        const aiResponse: FrontChatMessage = {
+          id: aiResponseId,
+          text: data.aiMessage,
+          isSent: false,
+          chatInstanceId,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          user: {
+            id: 'ai',
+            name: 'AI',
+            email: 'ai@aismarttalk.com',
+            image: '',
+            role: 'BOT'
+          },
+        };
+        
+        // Add the AI response to history
+        dispatch({
+          type: ChatActionTypes.ADD_MESSAGE,
+          payload: { 
+            message: aiResponse, 
+            chatInstanceId 
+          },
+        });
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       showTemporaryToolState("Error", "error");

@@ -10,6 +10,7 @@ export interface FrontChatMessage {
     email: string;
     name: string;
     image?: string;
+    role?: string;
   };
 }
 

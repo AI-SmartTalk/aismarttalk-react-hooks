@@ -1,5 +1,5 @@
 import { FrontChatMessage } from "../types/chat";
-import { shouldMessageBeSent, isMessageDuplicate } from "../utils/messageUtils";
+import { shouldMessageBeSent } from "../utils/messageUtils";
 import {
   saveConversationHistory,
   loadConversationHistory,
@@ -152,50 +152,50 @@ export const chatReducer = (
       }
 
       if (state.messages.length > 0 && action.payload.messages?.length) {
+        // Create a map of existing messages for faster lookup
         const existingMessages = new Map(
           state.messages.map((msg) => [msg.id, msg])
         );
-
-        const tempMessages = new Map();
-        state.messages.forEach((msg) => {
-          if (msg.id.startsWith("temp-")) {
-            const key = `${msg.text}|${msg.user?.id || "unknown"}`;
-            tempMessages.set(key, msg);
-          }
-        });
-
+        
         const newMessages = action.payload.messages;
-
+        
+        // Process regular messages from websocket
         newMessages.forEach((msg) => {
-          if (msg.id.startsWith("temp-")) return;
-          const existing = existingMessages.get(msg.id);
-          if (!existing) {
-            existingMessages.set(msg.id, msg);
-          } else if (new Date(msg.updated_at) > new Date(existing.updated_at)) {
+          if (!msg.id.startsWith("temp-")) {
+            // Check if this message is an update to a temporary message
+            const tempKey = Array.from(existingMessages.values()).find(
+              existingMsg => 
+                existingMsg.id.startsWith("temp-") && 
+                existingMsg.text === msg.text &&
+                existingMsg.user?.id === msg.user?.id
+            );
+            
+            if (tempKey) {
+              // If we found a matching temp message, remove it
+              existingMessages.delete(tempKey.id);
+            }
+            
+            // Add or update the websocket message
             existingMessages.set(msg.id, {
               ...msg,
-              isSent: existing.isSent || msg.isSent,
+              isSent: msg.isSent || (tempKey?.isSent || false)
             });
-          }
-        });
-
-        newMessages.forEach((msg) => {
-          if (!msg.id.startsWith("temp-")) return;
-          const key = `${msg.text}|${msg.user?.id || "unknown"}`;
-
-          let hasNonTempVersion = false;
-          existingMessages.forEach((existingMsg) => {
-            if (
-              !existingMsg.id.startsWith("temp-") &&
-              existingMsg.text === msg.text &&
-              existingMsg.user?.id === msg.user?.id
-            ) {
-              hasNonTempVersion = true;
+          } else {
+            // For temp messages, only add if we don't already have a non-temp version
+            let hasNonTempVersion = false;
+            existingMessages.forEach((existingMsg) => {
+              if (
+                !existingMsg.id.startsWith("temp-") &&
+                existingMsg.text === msg.text &&
+                existingMsg.user?.id === msg.user?.id
+              ) {
+                hasNonTempVersion = true;
+              }
+            });
+            
+            if (!hasNonTempVersion && !existingMessages.has(msg.id)) {
+              existingMessages.set(msg.id, msg);
             }
-          });
-
-          if (!hasNonTempVersion) {
-            existingMessages.set(msg.id, msg);
           }
         });
 
@@ -224,41 +224,41 @@ export const chatReducer = (
       const newMessage = action.payload.message;
       if (!newMessage) return state;
 
-      const messageExists = isMessageDuplicate(newMessage, state.messages);
-
-      if (messageExists) {
-        const tempMessageIndex = state.messages.findIndex(
-          (msg) =>
-            msg.id.startsWith("temp-") &&
-            msg.text === newMessage.text &&
-            msg.user?.id === newMessage.user?.id
-        );
-
-        if (tempMessageIndex >= 0 && !newMessage.id.startsWith("temp-")) {
-          const updatedMessages = [...state.messages];
-          updatedMessages[tempMessageIndex] = {
-            ...newMessage,
-            isSent:
-              state.messages[tempMessageIndex].isSent || newMessage.isSent,
-          };
-
-          debouncedSaveMessagesToLocalStorage(
-            updatedMessages,
-            action.payload.chatInstanceId || ""
-          );
-
-          return { ...state, messages: updatedMessages };
-        }
-
-        return state;
-      }
-
+      // Add the message directly without deduplication check
       newMessage.isSent = shouldMessageBeSent(
         newMessage,
         action.payload.userId,
         action.payload.userEmail
       );
-
+      
+      // Check if we're adding a normal message and we have a temp version
+      if (!newMessage.id.startsWith("temp-")) {
+        // Look for a temporary message that matches this one
+        const tempIndex = state.messages.findIndex(
+          msg => 
+            msg.id.startsWith("temp-") &&
+            msg.text === newMessage.text &&
+            msg.user?.id === newMessage.user?.id
+        );
+        
+        if (tempIndex >= 0) {
+          // Replace the temp message with the permanent one
+          const updatedMessages = [...state.messages];
+          updatedMessages[tempIndex] = {
+            ...newMessage,
+            isSent: state.messages[tempIndex].isSent || newMessage.isSent
+          };
+          
+          debouncedSaveMessagesToLocalStorage(
+            updatedMessages,
+            action.payload.chatInstanceId || ""
+          );
+          
+          return { ...state, messages: updatedMessages };
+        }
+      }
+      
+      // If not replacing a temp message, just add the new message
       const updatedMessages = [...state.messages, newMessage];
       debouncedSaveMessagesToLocalStorage(
         updatedMessages,
