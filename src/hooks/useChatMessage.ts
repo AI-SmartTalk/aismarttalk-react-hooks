@@ -847,30 +847,15 @@ export const useChatMessages = ({
       const data = await response.json();
       
       // Check if we got an AI response from the API and add it to history
-      if (data.aiMessage && typeof data.aiMessage === 'string') {
-        const aiResponseId = `api-${Date.now()}`;
-        const aiResponse: FrontChatMessage = {
-          id: aiResponseId,
-          text: data.aiMessage,
-          isSent: false,
-          chatInstanceId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          isLocallyCreated: true,
-          user: {
-            id: 'ai',
-            name: 'AI',
-            email: 'ai@aismarttalk.com',
-            image: '',
-            role: 'BOT'
-          },
-        };
-        
+      if (data.message) {
         // Add the AI response to history
         dispatch({
           type: ChatActionTypes.ADD_MESSAGE,
           payload: { 
-            message: aiResponse, 
+            message: {
+              ...data.message,
+              isLocallyCreated: true,
+            }, 
             chatInstanceId 
           },
         });

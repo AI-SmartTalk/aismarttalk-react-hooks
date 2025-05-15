@@ -224,14 +224,6 @@ export const chatReducer = (
       const newMessage = action.payload.message;
       if (!newMessage) return state;
 
-      console.log("[CHAT REDUCER] Processing new message:", {
-        id: newMessage.id,
-        text: newMessage.text,
-        isLocallyCreated: newMessage.isLocallyCreated,
-        user: newMessage.user?.id,
-        messagesCount: state.messages.length
-      });
-
       newMessage.isSent = shouldMessageBeSent(
         newMessage,
         action.payload.userId,
@@ -240,8 +232,6 @@ export const chatReducer = (
       
       // CASE 1: Message from websocket (not locally created)
       if (!newMessage.isLocallyCreated) {
-        console.log("[CHAT REDUCER] Processing server message (not locally created)");
-        
         // Look for locally created messages with same content but with more flexible user matching
         const localIndex = state.messages.findIndex(
           msg => 
@@ -255,19 +245,6 @@ export const chatReducer = (
         );
         
         if (localIndex >= 0) {
-          console.log("[CHAT REDUCER] Found matching local message to replace at index:", localIndex, {
-            localMessage: {
-              id: state.messages[localIndex].id,
-              text: state.messages[localIndex].text.substring(0, 20) + "...",
-              userId: state.messages[localIndex].user?.id
-            },
-            serverMessage: {
-              id: newMessage.id,
-              text: newMessage.text.substring(0, 20) + "...", 
-              userId: newMessage.user?.id
-            }
-          });
-          
           // Replace our local message with the server message
           const updatedMessages = [...state.messages];
           updatedMessages[localIndex] = {
@@ -280,7 +257,6 @@ export const chatReducer = (
             action.payload.chatInstanceId || ""
           );
           
-          console.log("[CHAT REDUCER] Replaced local message with server version");
           return { ...state, messages: updatedMessages };
         }
         
@@ -294,42 +270,20 @@ export const chatReducer = (
         );
         
         if (duplicateServerMessages.length > 0) {
-          console.log("[CHAT REDUCER] Found potential duplicate server messages:", 
-            duplicateServerMessages.map(msg => ({
-              id: msg.id,
-              text: msg.text.substring(0, 20) + "...",
-              createdAt: msg.created_at,
-              userId: msg.user?.id
-            }))
-          );
-          
           // Use timestamp-based approach for server messages too
           // Only consider it a duplicate if times are within 30 seconds
           const existingTime = new Date(duplicateServerMessages[0].created_at).getTime();
           const newTime = new Date(newMessage.created_at).getTime();
           const timeDiff = Math.abs(existingTime - newTime);
           
-          console.log("[CHAT REDUCER] Server message time comparison:", {
-            existingTime,
-            newTime,
-            diffMs: timeDiff
-          });
-          
           // Only consider a duplicate if timestamps are close (within 30 seconds)
           if (timeDiff < 30000) {
-            console.log("[CHAT REDUCER] Confirmed duplicate server message, skipping");
             return state;
-          } else {
-            console.log("[CHAT REDUCER] Not skipping despite content match (timestamps differ significantly)");
           }
         }
-
-        console.log("[CHAT REDUCER] No duplicates found, adding server message");
       } 
       // CASE 2: Locally created message
       else {
-        console.log("[CHAT REDUCER] Processing locally created message");
-        
         // Check if we already have a non-locally-created message with same content
         const serverMessages = state.messages.filter(
           msg =>
@@ -339,32 +293,14 @@ export const chatReducer = (
         );
         
         if (serverMessages.length > 0) {
-          console.log("[CHAT REDUCER] Found server versions of this message:", 
-            serverMessages.map(msg => ({
-              id: msg.id,
-              text: msg.text.substring(0, 20) + "...",
-              createdAt: msg.created_at,
-              userId: msg.user?.id
-            }))
-          );
-          
           // Compare timestamps - only skip if server message is older
           const serverMessageTime = new Date(serverMessages[0].created_at).getTime();
           const newMessageTime = new Date(newMessage.created_at).getTime();
           const timeDiff = Math.abs(serverMessageTime - newMessageTime);
           
-          console.log("[CHAT REDUCER] Server-local time comparison:", {
-            serverTime: serverMessageTime,
-            localTime: newMessageTime,
-            diffMs: timeDiff
-          });
-          
           // Only skip if server message is older or within 10 seconds
           if (serverMessageTime < newMessageTime || timeDiff < 10000) {
-            console.log("[CHAT REDUCER] Skipping local message due to existing server version");
             return state;
-          } else {
-            console.log("[CHAT REDUCER] Not skipping despite server version (timestamps differ significantly)");
           }
         }
         
@@ -378,31 +314,13 @@ export const chatReducer = (
         );
         
         if (duplicateLocalMessages.length > 0 && state.messages.length > 0) {
-          console.log("[CHAT REDUCER] Found potential duplicate local messages:", 
-            duplicateLocalMessages.map(msg => ({
-              id: msg.id,
-              text: msg.text.substring(0, 20) + "...",
-              createdAt: msg.created_at,
-              userId: msg.user?.id
-            }))
-          );
-          
           // Compare timestamps - only consider a duplicate if within 10 seconds
           const existingTime = new Date(duplicateLocalMessages[0].created_at).getTime();
           const newTime = new Date(newMessage.created_at).getTime();
           const timeDiff = Math.abs(existingTime - newTime);
           
-          console.log("[CHAT REDUCER] Local message time comparison:", {
-            existingTime,
-            newTime,
-            diffMs: timeDiff
-          });
-          
           if (timeDiff < 10000) {
-            console.log("[CHAT REDUCER] Confirmed duplicate local message, skipping");
             return state;
-          } else {
-            console.log("[CHAT REDUCER] Not skipping despite content match (timestamps differ significantly)");
           }
         }
         
@@ -417,12 +335,9 @@ export const chatReducer = (
         );
         
         if (hasLocalDuplicate) {
-          console.log("[CHAT REDUCER] Found duplicate local message, skipping");
           // Skip duplicate local message
           return state;
         }
-
-        console.log("[CHAT REDUCER] No duplicates found, adding local message");
       }
       
       // Add the message if it passed all deduplication checks
@@ -432,7 +347,6 @@ export const chatReducer = (
         action.payload.chatInstanceId || ""
       );
 
-      console.log("[CHAT REDUCER] Message added to state, new count:", updatedMessages.length);
       return { ...state, messages: updatedMessages };
 
     case ChatActionTypes.RESET_CHAT:
