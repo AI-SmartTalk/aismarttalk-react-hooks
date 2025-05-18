@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { defaultApiUrl } from "../types/config";
 
 /**
@@ -63,8 +63,8 @@ export const useChatInstance = ({
 
   const [chatInstanceId, setChatInstanceId] = useState<string>(getInitialInstanceId);
   const [error, setError] = useState<Error | null>(null);
-  const [isChanging, setIsChanging] = useState<boolean>(false);
-  const [hasInitialized, setHasInitialized] = useState<boolean>(false);
+  const isChangingRef = useRef(false);
+  const hasInitializedRef = useRef(false);
 
   const cleanup = useCallback(() => {
     setChatInstanceId('');
@@ -79,9 +79,10 @@ export const useChatInstance = ({
 
   const initializeChatInstance = async () => {   
     try {
-      if (isChanging) return null;
+      console.log('initializeChatInstance with isChanging', isChangingRef.current);
+      if (isChangingRef.current) return null;
   
-      setIsChanging(true);
+      isChangingRef.current = true;
       await cleanup();
       
       const headers: Record<string, string> = {
@@ -110,7 +111,7 @@ export const useChatInstance = ({
       });
 
       if (!response.ok) {
-        setIsChanging(false);
+        isChangingRef.current = false;
         return null;
       }
 
@@ -118,7 +119,7 @@ export const useChatInstance = ({
       const instanceId = data.chatInstanceId;
       
       if (!instanceId) {
-        setIsChanging(false);
+        isChangingRef.current = false;
         return null;
       }
 
@@ -127,11 +128,11 @@ export const useChatInstance = ({
       } catch (err) {}
 
       setChatInstanceId(instanceId);
-      setIsChanging(false);
+      isChangingRef.current = false;
       setError(null);
       return instanceId;
     } catch (err) {
-      setIsChanging(false);
+      isChangingRef.current = false;
       return null;
     }
   };
@@ -140,8 +141,12 @@ export const useChatInstance = ({
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
+      console.log('initializeOrSwitchInstance');
+      console.log(isAdmin, chatModelId, storageKey, isChangingRef.current, chatInstanceId, hasInitializedRef.current)
       // Skip if already initialized or currently changing
-      if (isChanging || hasInitialized) return;
+      if (isChangingRef.current || hasInitializedRef.current) return;
+
+      console.log('initializeOrSwitchInstance 2');
 
       let savedInstance = null;
       try {
@@ -153,15 +158,15 @@ export const useChatInstance = ({
       if (savedInstance && savedInstance.length > 0) {
         if (isMounted) {
           setChatInstanceId(savedInstance);
-          setIsChanging(false);
-          setHasInitialized(true);
+          isChangingRef.current = false;
+          hasInitializedRef.current = true;
         }
       } else if (!chatInstanceId && isMounted) {
         try {
           const newInstanceId = await initializeChatInstance();
           if (isMounted) {
             setChatInstanceId(newInstanceId);
-            setHasInitialized(true);
+            hasInitializedRef.current = true;
           }
         } catch (error) {
           console.error('Failed to initialize instance:', error);
@@ -171,7 +176,7 @@ export const useChatInstance = ({
         }
       } else {
         // Mark as initialized if we already have an instance ID
-        setHasInitialized(true);
+        hasInitializedRef.current = true;
       }
     };
 
@@ -180,14 +185,14 @@ export const useChatInstance = ({
     return () => {
       isMounted = false;
     };
-  }, [isAdmin, chatModelId, storageKey, isChanging, chatInstanceId]); 
+  }, [isAdmin, chatModelId, storageKey, isChangingRef.current, chatInstanceId]); 
 
   return {
     chatInstanceId,
     getNewInstance: initializeChatInstance,
     setChatInstanceId,
     error,
-    isChanging,
+    isChanging: isChangingRef.current,
     cleanup
   };
 };
