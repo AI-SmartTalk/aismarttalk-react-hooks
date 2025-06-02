@@ -371,3 +371,153 @@ We welcome contributions! Please feel free to submit a Pull Request.
 ---
 
 Enjoy integrating chat functionality with [AI Smarttalk](https://aismarttalk.tech) React Hooks! 🚀
+
+## Usage
+
+### useFileUpload Hook
+
+The `useFileUpload` hook now integrates with the chat state management system and uses the existing WebSocket connection from `useSocketHandler` for real-time canvas updates.
+
+```tsx
+import React, { useReducer } from 'react';
+import { 
+  useFileUpload, 
+  ChatActionTypes, 
+  chatReducer, 
+  initialChatState,
+  useSocketHandler 
+} from '@aismarttalk/react-hooks';
+
+function ChatWithFileUpload() {
+  const [chatState, dispatch] = useReducer(chatReducer, initialChatState);
+  
+  // Initialize socket handler (this manages the WebSocket connection)
+  const socketRef = useSocketHandler(
+    chatInstanceId,
+    user,
+    wsUrl,
+    apiUrl,
+    chatModelId,
+    dispatch,
+    setSocketStatus,
+    setTypingUsers,
+    setConversationStarters,
+    setActiveTool,
+    setUser,
+    debouncedTypingUsersUpdate,
+    canvasHistory,
+    chatState.messages
+  );
+
+  // Use file upload hook with chat state integration
+  const { 
+    uploadFile, 
+    fetchCanvases, 
+    canvases, 
+    isUploading, 
+    error,
+    refreshCanvases 
+  } = useFileUpload({
+    chatModelId: 'your-chat-model-id',
+    chatInstanceId: 'your-chat-instance-id',
+    config: {
+      apiUrl: 'https://your-api-url.com',
+      apiToken: 'your-api-token'
+    },
+    user: {
+      token: 'user-auth-token',
+      id: 'user-id'
+    },
+    canvases: chatState.canvases, // Canvas data from chat state
+    dispatch: dispatch // Chat dispatch function
+  });
+
+  const handleFileUpload = async (file: File) => {
+    const result = await uploadFile(file);
+    if (result.success) {
+      console.log('File uploaded successfully');
+      // Canvas updates will be received automatically via WebSocket
+      // and handled by the socket handler which dispatches UPDATE_CANVAS actions
+    }
+  };
+
+  return (
+    <div>
+      <input 
+        type="file" 
+        onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])} 
+      />
+      {isUploading && <div>Uploading...</div>}
+      {error && <div>Error: {error}</div>}
+      
+      <div>
+        <h2>Canvases ({canvases.length})</h2>
+        {canvases.map(canvas => (
+          <div key={canvas.id}>
+            <h3>Canvas {canvas.id}</h3>
+            <pre>{canvas.content}</pre>
+          </div>
+        ))}
+      </div>
+      
+      <button onClick={refreshCanvases}>
+        Refresh Canvases
+      </button>
+    </div>
+  );
+}
+```
+
+### Key Changes
+
+1. **Removed Socket Management**: The `useFileUpload` hook no longer manages its own WebSocket connection. Instead, it relies on the existing `useSocketHandler` for real-time updates.
+
+2. **State Integration**: Canvas data is now managed through the chat reducer state, allowing for better integration with the overall chat system.
+
+3. **Real-time Updates**: Canvas live updates are received through the `canvas-live-update` WebSocket event in `useSocketHandler` and automatically update the chat state via the `UPDATE_CANVAS` action.
+
+4. **Simplified API**: The hook now focuses on file operations and canvas data management, while WebSocket connectivity is handled centrally.
+
+### Canvas Live Updates
+
+Canvas updates are automatically handled when received via WebSocket:
+
+```tsx
+// In useSocketHandler.ts - this happens automatically
+socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
+  dispatch({
+    type: ChatActionTypes.UPDATE_CANVAS,
+    payload: { canvas: data },
+  });
+});
+```
+
+The `UPDATE_CANVAS` action in the chat reducer applies line-by-line updates to the canvas content, ensuring real-time synchronization across all connected clients.
+
+## Types
+
+### CanvasLiveUpdate
+```tsx
+interface CanvasLiveUpdate {
+  canvasId: string;
+  updates: LineUpdate[];
+}
+```
+
+### LineUpdate
+```tsx
+interface LineUpdate {
+  lineNumber: number;
+  oldContent: string;
+  newContent: string;
+  timestamp: Date;
+}
+```
+
+### CanvasFullContent
+```tsx
+interface CanvasFullContent {
+  id: string;
+  content: string;
+}
+```

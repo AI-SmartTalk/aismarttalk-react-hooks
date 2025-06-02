@@ -24,6 +24,7 @@ import { useMessageHandler } from "./chat/useMessageHandler";
 import { useSocketHandler } from "./chat/useSocketHandler";
 import useChatInstance from "./useChatInstance";
 import { shouldMessageBeSent } from "../utils/messageUtils";
+import { useFileUpload } from "./fileUpload/useFileUpload";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -74,6 +75,7 @@ export const useChatMessages = ({
   isAdmin = false,
   debug = false,
 }: UseChatMessagesOptions) => {
+  console.log('config', config);
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
@@ -695,6 +697,8 @@ export const useChatMessages = ({
     debug
   );
 
+  const { uploadFile, isUploading } = useFileUpload({chatModelId, chatInstanceId, user, config, dispatch});
+
   useEffect(() => {
     if (!chatInstanceId || !socketRef?.current) return;
 
@@ -1233,5 +1237,7 @@ export const useChatMessages = ({
     getNewInstance,
     createNewChat,
     resetChat,
+    uploadFile,
+    isUploading,
   };
 };
