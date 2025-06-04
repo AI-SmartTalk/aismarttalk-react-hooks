@@ -18,6 +18,7 @@ import {
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
+import { CanvasLiveUpdate } from "../fileUpload/useFileUpload";
 
 interface SocketLogger {
   log: (...args: any[]) => void;
@@ -321,6 +322,15 @@ export const useSocketHandler = (
     socket.on("user-typing", (data: TypingUser) => {
       trackEvent("user-typing");
       stableTypingUpdate(data);
+    });
+
+    socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
+      trackEvent("canvas-live-update");
+      console.log("canvas-live-update", data);
+      dispatch({
+        type: ChatActionTypes.UPDATE_CANVAS,
+        payload: { canvas: data },
+      });
     });
 
     socket.on("update-suggestions", (data) => {

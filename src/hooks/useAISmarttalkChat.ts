@@ -51,7 +51,7 @@ const createLogger = (enabled: boolean, prefix: string) => {
       if (enabled) {
         console.groupEnd();
       }
-    }
+    },
   };
 };
 
@@ -101,51 +101,58 @@ export const useAISmarttalkChat = ({
   const cycleCountRef = useRef<number>(0);
   const lastSocketStatusRef = useRef<string>("");
   const lastApiCallTimestampRef = useRef<number>(0);
-  
-    const logger = useMemo(() => createLogger(debug, 'CHAT'), [debug]);
-  
-    useEffect(() => {
+
+  const logger = useMemo(() => createLogger(debug, "CHAT"), [debug]);
+
+  useEffect(() => {
     cycleCountRef.current++;
-    
+
     logger.group(`Initialization (render #${cycleCountRef.current})`);
-    logger.log('Props:', { chatModelId, lang, config, debug });
+    logger.log("Props:", { chatModelId, lang, config, debug });
     logger.groupEnd();
-    
+
     return () => {
-      logger.log('Hook cleanup');
+      logger.log("Hook cleanup");
     };
   }, [logger, chatModelId, lang, config, debug]);
 
-    const { user, setUser, updateUserFromLocalStorage, logout, initialUser } = useUser(config?.user);
+  const { user, setUser, updateUserFromLocalStorage, logout, initialUser } =
+    useUser(config?.user);
 
-    useEffect(() => {
-    logger.log('User state changed:', { 
-      id: user.id, 
-      email: user.email, 
-      isAnonymous: user.id === 'anonymous' || !user.id,
-      hasToken: !!user.token
+  useEffect(() => {
+    logger.log("User state changed:", {
+      id: user.id,
+      email: user.email,
+      isAnonymous: user.id === "anonymous" || !user.id,
+      hasToken: !!user.token,
     });
   }, [user, logger]);
 
-    const { chatModel, setChatModel } = useChatModel({ 
-    chatModelId, 
-    config 
+  const { chatModel, setChatModel } = useChatModel({
+    chatModelId,
+    config,
   });
 
-    const features = useMemo(() => ({
-    ...defaultFeatures,
-    ...config?.features,
-  }), [config?.features]);
+  const features = useMemo(
+    () => ({
+      ...defaultFeatures,
+      ...config?.features,
+    }),
+    [config?.features]
+  );
 
-    const chatMessagesProps = useMemo(() => ({
-    chatModelId,
-    user,
-    setUser,
-    config,
-    lang,
-    isAdmin: features.smartadmin,
-    debug: debug
-  }), [chatModelId, user, config, lang, features.smartadmin, debug]);
+  const chatMessagesProps = useMemo(
+    () => ({
+      chatModelId,
+      user,
+      setUser,
+      config,
+      lang,
+      isAdmin: features.smartadmin,
+      debug: debug,
+    }),
+    [chatModelId, user, config, lang, features.smartadmin, debug]
+  );
 
   const {
     messages,
@@ -164,61 +171,78 @@ export const useAISmarttalkChat = ({
     isLoading,
     suggestions,
     updateChatTitle,
-    createNewChat
+    createNewChat,
+    uploadFile,
+    isUploading,
   } = useChatMessages(chatMessagesProps);
 
-    useEffect(() => {
+  useEffect(() => {
     if (socketStatus !== lastSocketStatusRef.current) {
-      logger.log(`Socket status changed: ${lastSocketStatusRef.current} -> ${socketStatus}`);
+      logger.log(
+        `Socket status changed: ${lastSocketStatusRef.current} -> ${socketStatus}`
+      );
       lastSocketStatusRef.current = socketStatus;
     }
   }, [socketStatus, logger]);
 
-    useEffect(() => {
+  useEffect(() => {
     logger.log(`Messages updated: ${messages.length} messages total`);
     if (messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
-      logger.log('Last message:', { 
-        id: lastMsg.id, 
-        text: lastMsg.text.substring(0, 30) + (lastMsg.text.length > 30 ? '...' : ''),
+      logger.log("Last message:", {
+        id: lastMsg.id,
+        text:
+          lastMsg.text.substring(0, 30) +
+          (lastMsg.text.length > 30 ? "..." : ""),
         fromUser: lastMsg.user?.id === user.id,
         isSent: lastMsg.isSent,
-        time: new Date(lastMsg.created_at).toISOString()
+        time: new Date(lastMsg.created_at).toISOString(),
       });
     }
   }, [messages, logger, user.id]);
 
-    const fetchMessagesWithLogging = useCallback(() => {
+  const fetchMessagesWithLogging = useCallback(() => {
     const now = Date.now();
     const timeSinceLastCall = now - lastApiCallTimestampRef.current;
-    
-    logger.group('API Fetch Request');
-    logger.log('Time since last API call:', timeSinceLastCall + 'ms');
-    logger.log('Current messages:', messages.length);
-    logger.log('Socket status:', socketStatus);
-    logger.log('Chat instance ID:', chatInstanceId);
-    
-        lastApiCallTimestampRef.current = now;
-    
-        fetchMessagesFromApi();
-    
+
+    logger.group("API Fetch Request");
+    logger.log("Time since last API call:", timeSinceLastCall + "ms");
+    logger.log("Current messages:", messages.length);
+    logger.log("Socket status:", socketStatus);
+    logger.log("Chat instance ID:", chatInstanceId);
+
+    lastApiCallTimestampRef.current = now;
+
+    fetchMessagesFromApi();
+
     logger.groupEnd();
-  }, [fetchMessagesFromApi, messages.length, socketStatus, chatInstanceId, logger]);
+  }, [
+    fetchMessagesFromApi,
+    messages.length,
+    socketStatus,
+    chatInstanceId,
+    logger,
+  ]);
 
-    const handleConversationSelect = useCallback(async (id: string) => {
-    // Skip if already in this conversation
-    if (chatInstanceId === id) return;
-    
-    // Direct call to select conversation, this will reset messages internally
-    await selectConversation(id);
-  }, [selectConversation, chatInstanceId]);
+  const handleConversationSelect = useCallback(
+    async (id: string) => {
+      // Skip if already in this conversation
+      if (chatInstanceId === id) return;
 
-    useEffect(() => {
+      // Direct call to select conversation, this will reset messages internally
+      await selectConversation(id);
+    },
+    [selectConversation, chatInstanceId]
+  );
+
+  useEffect(() => {
     if (!chatInstanceId) return;
-    
+
     // Find the conversation
-    const conversation = conversations.find(conv => conv.id === chatInstanceId);
-    
+    const conversation = conversations.find(
+      (conv) => conv.id === chatInstanceId
+    );
+
     // Only restore if we found the conversation and don't have messages
     if (conversation && messages.length === 0) {
       selectConversation(chatInstanceId);
@@ -230,64 +254,77 @@ export const useAISmarttalkChat = ({
    */
   const handleLogout = useCallback(async () => {
     try {
-      logger.group('Logout Process');
-      logger.log('Starting logout, current user:', { id: user.id, email: user.email });
-      
-            if (chatInstanceId) {
-        logger.log('Cleaning up chat instance:', chatInstanceId);
-                try {
+      logger.group("Logout Process");
+      logger.log("Starting logout, current user:", {
+        id: user.id,
+        email: user.email,
+      });
+
+      if (chatInstanceId) {
+        logger.log("Cleaning up chat instance:", chatInstanceId);
+        try {
           localStorage.removeItem(`chat-${chatInstanceId}-history`);
           localStorage.removeItem(`chatMessages[${chatInstanceId}]`);
           localStorage.removeItem(`chat-${chatInstanceId}-suggestions`);
         } catch (error) {
-          logger.warn('Error cleaning up chat history during logout:', error);
+          logger.warn("Error cleaning up chat history during logout:", error);
         }
       }
-      
-            logger.log('Executing logout');
+
+      logger.log("Executing logout");
       logout();
-      
-            logger.log('Creating new conversation for anonymous user');
+
+      logger.log("Creating new conversation for anonymous user");
       const newChatId = await createNewChat();
-      logger.log('Created new chat ID:', newChatId);
-      
-            if (newChatId) {
-        logger.log('Selecting new conversation');
+      logger.log("Created new chat ID:", newChatId);
+
+      if (newChatId) {
+        logger.log("Selecting new conversation");
         await selectConversation(newChatId);
       }
-      
-      logger.log('Logout process complete');
+
+      logger.log("Logout process complete");
       logger.groupEnd();
     } catch (error) {
-      logger.error('Error during logout:', error);
-      setError(error instanceof Error ? error : new Error('Failed to complete logout process'));
+      logger.error("Error during logout:", error);
+      setError(
+        error instanceof Error
+          ? error
+          : new Error("Failed to complete logout process")
+      );
       logger.groupEnd();
     }
   }, [logout, createNewChat, selectConversation, chatInstanceId, user, logger]);
 
-    const onSendWithLogging = useCallback((messageText: string) => {
-    logger.group('Send Message');
-    logger.log('Message text:', messageText.substring(0, 50) + (messageText.length > 50 ? '...' : ''));
-    logger.log('Current socket status:', socketStatus);
-    logger.log('User:', { id: user.id, hasToken: !!user.token });
-    
-    onSend(messageText);
-    
-    logger.groupEnd();
-  }, [onSend, socketStatus, user, logger]);
+  const onSendWithLogging = useCallback(
+    (messageText: string) => {
+      logger.group("Send Message");
+      logger.log(
+        "Message text:",
+        messageText.substring(0, 50) + (messageText.length > 50 ? "..." : "")
+      );
+      logger.log("Current socket status:", socketStatus);
+      logger.log("User:", { id: user.id, hasToken: !!user.token });
+
+      onSend(messageText);
+
+      logger.groupEnd();
+    },
+    [onSend, socketStatus, user, logger]
+  );
 
   return {
-        chatInstanceId,
+    chatInstanceId,
     createNewChat,
     selectConversation,
-    updateChatTitle,    
+    updateChatTitle,
 
-        user,
+    user,
     setUser,
     updateUserFromLocalStorage,
     logout: handleLogout,
 
-        messages,
+    messages,
     onSend: onSendWithLogging,
     isLoading,
     socketStatus,
@@ -295,23 +332,26 @@ export const useAISmarttalkChat = ({
     conversationStarters,
     suggestions,
 
-        chatModel,
+    chatModel,
     setChatModel,
     error,
 
-        activeTool,
+    activeTool,
     conversations,
     setConversations,
     fetchMessagesFromApi: fetchMessagesWithLogging,
 
-        features,
+    features,
 
-        canvasHistory,
+    canvasHistory,
 
-        handleConversationSelect,
-    
-        logger,
-    debugEnabled: debug
+    handleConversationSelect,
+
+    logger,
+    debugEnabled: debug,
+
+    uploadFile,
+    isUploading,
   };
 };
 
