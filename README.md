@@ -215,6 +215,40 @@ const ChatInstanceComponent = () => {
 export default ChatInstanceComponent;
 ```
 
+### Using `useChatModel`
+
+```tsx
+import React from 'react';
+import { useChatModel } from '@aismarttalk/react-hooks';
+
+const ChatModelComponent = () => {
+  const { chatModel, setChatModel } = useChatModel({
+    chatModelId: 'your-model-id',
+    config: {
+      apiUrl: 'https://aismarttalk.tech',
+      apiToken: 'your-api-token',
+    },
+  });
+
+  return (
+    <div>
+      {chatModel ? (
+        <div>
+          <h3>Chat Model: {chatModel.name}</h3>
+          <p>Description: {chatModel.description}</p>
+          <p>Provider: {chatModel.provider}</p>
+          {/* Display other model properties as needed */}
+        </div>
+      ) : (
+        <p>Loading chat model...</p>
+      )}
+    </div>
+  );
+};
+
+export default ChatModelComponent;
+```
+
 ## 🔄 Message Handling Improvements
 
 ### Message Deduplication System
