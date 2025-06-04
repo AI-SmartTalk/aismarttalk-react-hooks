@@ -151,7 +151,7 @@ export const useAISmarttalkChat = ({
       isAdmin: features.smartadmin,
       debug: debug,
     }),
-    [chatModelId, user, config, lang, features.smartadmin, debug]
+    [chatModelId, user, setUser, config, lang, features.smartadmin, debug]
   );
 
   const {
