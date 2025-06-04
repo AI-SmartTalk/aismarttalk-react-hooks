@@ -158,6 +158,7 @@ export const useAISmarttalkChat = ({
     messages,
     chatInstanceId,
     getNewInstance,
+    canvases,
     selectConversation,
     socketStatus,
     typingUsers,
@@ -318,6 +319,7 @@ export const useAISmarttalkChat = ({
     createNewChat,
     selectConversation,
     updateChatTitle,
+    canvases,
 
     user,
     setUser,

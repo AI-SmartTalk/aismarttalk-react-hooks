@@ -1174,6 +1174,7 @@ export const useChatMessages = ({
     messages: state.messages,
     notificationCount: state.notificationCount,
     suggestions: state.suggestions,
+    canvases: state.canvases,
     error: {
       message: error,
       type: errorType,

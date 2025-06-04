@@ -68,7 +68,6 @@ export function useFileUpload({
   console.log("config in useFileUpload", config);
 
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
-  const finalCdnUrl = config?.cdnUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
 
   useEffect(() => {

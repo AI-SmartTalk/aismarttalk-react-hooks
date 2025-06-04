@@ -4,7 +4,7 @@ import {
   saveConversationHistory,
   loadConversationHistory,
 } from "../utils/localStorageHelpers";
-import { CanvasLiveUpdate } from "../hooks/fileUpload/useFileUpload";
+import { CanvasLiveUpdate, CanvasFullContent } from "../hooks/fileUpload/useFileUpload";
 
 export enum ChatActionTypes {
   SET_MESSAGES = "SET_MESSAGES",
@@ -26,11 +26,6 @@ interface ChatState {
   title: string;
   isLoading: boolean;
   canvases: CanvasFullContent[];
-}
-
-interface CanvasFullContent {
-  id: string;
-  content: string;
 }
 
 const saveMessagesToLocalStorage = (
