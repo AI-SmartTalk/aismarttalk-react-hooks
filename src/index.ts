@@ -1,6 +1,7 @@
 export { useChatMessages } from "./hooks/useChatMessage";
 export { useChatInstance } from "./hooks/useChatInstance";
 export { useAISmarttalkChat } from "./hooks/useAISmarttalkChat";
+export { useChatModel } from "./hooks/useChatModel";
 export { useOtpAuth } from "./hooks/user/useOtpAuth"
 export { default as useUser } from "./hooks/useUser";
 export { useFileUpload } from "./hooks/fileUpload/useFileUpload";
