@@ -294,10 +294,8 @@ export const useChatMessages = ({
       const data = await response.json();
       console.log("Fetched canvases", data);
       
-      // Update canvases through useCanvasHistory
       canvasHistory.setCanvasesFromAPI(data);
       
-      // Also update the reducer state for backward compatibility
       dispatch({
         type: ChatActionTypes.SET_CANVASES,
         payload: { canvases: data },
@@ -307,11 +305,13 @@ export const useChatMessages = ({
       const errorMessage = err.message || 'Failed to fetch canvases';
       console.error("Error fetching canvases:", errorMessage);
     }
-  }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId, canvasHistory]);
+  }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId]);
 
-  // Initialize canvas fetching
+  const fetchedCanvasesRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    if (chatInstanceId) {
+    if (chatInstanceId && !fetchedCanvasesRef.current.has(chatInstanceId)) {
+      fetchedCanvasesRef.current.add(chatInstanceId);
       fetchCanvases();
     }
   }, [chatInstanceId, fetchCanvases]);
@@ -325,7 +325,6 @@ export const useChatMessages = ({
         }
 
         if (id === chatInstanceId) {
-          // Si on sélectionne la conversation actuelle, ne rien faire
           return;
         }
 
@@ -345,7 +344,6 @@ export const useChatMessages = ({
         setChatInstanceId(id);
         localStorage.setItem(storageKey, id);
 
-        // Marquer comme initialisé pour empêcher les appels API à répétition
         hasInitializedRef.current = false;
 
         try {
@@ -774,8 +772,10 @@ export const useChatMessages = ({
     config,
     onUploadSuccess: (data) => {
       console.log("File uploaded successfully:", data);
-      // Refresh canvases after successful upload
-      fetchCanvases();
+      if (data.success !== false) {
+        fetchedCanvasesRef.current.delete(chatInstanceId);
+        fetchCanvases();
+      }
     },
     onUploadError: (error) => {
       console.error("File upload error:", error);
