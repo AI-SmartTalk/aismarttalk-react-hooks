@@ -79,7 +79,6 @@ export const useChatInstance = ({
 
   const initializeChatInstance = async () => {   
     try {
-      console.log('initializeChatInstance with isChanging', isChangingRef.current);
       if (isChangingRef.current) return null;
   
       isChangingRef.current = true;
@@ -141,12 +140,8 @@ export const useChatInstance = ({
     let isMounted = true;
 
     const initializeOrSwitchInstance = async () => {
-      console.log('initializeOrSwitchInstance');
-      console.log(isAdmin, chatModelId, storageKey, isChangingRef.current, chatInstanceId, hasInitializedRef.current)
       // Skip if already initialized or currently changing
       if (isChangingRef.current || hasInitializedRef.current) return;
-
-      console.log('initializeOrSwitchInstance 2');
 
       let savedInstance = null;
       try {

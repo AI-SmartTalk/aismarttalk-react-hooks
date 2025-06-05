@@ -422,7 +422,6 @@ export const chatReducer = (
       };
 
     case ChatActionTypes.SET_CANVASES:
-      console.log("Setting canvases", action.payload);
       return {
         ...state,
         canvases: action.payload.canvases || [],
