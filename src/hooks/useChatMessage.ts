@@ -306,12 +306,17 @@ export const useChatMessages = ({
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch canvases';
       console.error("Error fetching canvases:", errorMessage);
+      // Don't call the error callback here to prevent infinite loops
     }
-  }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId, canvasHistory]);
+  }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId]);
 
-  // Initialize canvas fetching
+  // Track if canvases have been fetched for this chat instance to prevent re-fetching
+  const fetchedCanvasesRef = useRef<Set<string>>(new Set());
+
+  // Initialize canvas fetching - only fetch once per chat instance
   useEffect(() => {
-    if (chatInstanceId) {
+    if (chatInstanceId && !fetchedCanvasesRef.current.has(chatInstanceId)) {
+      fetchedCanvasesRef.current.add(chatInstanceId);
       fetchCanvases();
     }
   }, [chatInstanceId, fetchCanvases]);
@@ -774,11 +779,16 @@ export const useChatMessages = ({
     config,
     onUploadSuccess: (data) => {
       console.log("File uploaded successfully:", data);
-      // Refresh canvases after successful upload
-      fetchCanvases();
+      // Only refresh canvases if the upload was successful
+      if (data.success !== false) {
+        // Reset the fetched flag so we can fetch updated canvases
+        fetchedCanvasesRef.current.delete(chatInstanceId);
+        fetchCanvases();
+      }
     },
     onUploadError: (error) => {
       console.error("File upload error:", error);
+      // Don't attempt to fetch canvases on error to prevent infinite loops
     }
   });
 
