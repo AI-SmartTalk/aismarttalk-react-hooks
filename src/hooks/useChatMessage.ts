@@ -244,6 +244,78 @@ export const useChatMessages = ({
     return messages.filter(message => message.chatInstanceId === targetChatInstanceId);
   };
 
+  // Canvas management with useCanvasHistory
+  const canvasHistory = useCanvasHistory(chatModelId, chatInstanceId);
+
+  // Fetch canvases from API
+  const fetchCanvases = useCallback(async (): Promise<void> => {
+    if (!chatInstanceId) return;
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      if (finalApiToken) {
+        headers.appToken = finalApiToken;
+      }
+
+      if (user?.token) {
+        headers["x-use-chatbot-auth"] = "true";
+        headers.Authorization = `Bearer ${user.token}`;
+      }
+
+      const response = await fetch(
+        `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`,
+        {
+          method: 'GET',
+          headers,
+        }
+      );
+
+      if (!response.ok) {
+        let errorMessage = `Failed to fetch canvases (${response.status})`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          try {
+            const textError = await response.text();
+            if (textError) {
+              errorMessage = textError;
+            }
+          } catch {
+            // Keep default error message
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log("Fetched canvases", data);
+      
+      // Update canvases through useCanvasHistory
+      canvasHistory.setCanvasesFromAPI(data);
+      
+      // Also update the reducer state for backward compatibility
+      dispatch({
+        type: ChatActionTypes.SET_CANVASES,
+        payload: { canvases: data },
+      });
+      
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to fetch canvases';
+      console.error("Error fetching canvases:", errorMessage);
+    }
+  }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId, canvasHistory]);
+
+  // Initialize canvas fetching
+  useEffect(() => {
+    if (chatInstanceId) {
+      fetchCanvases();
+    }
+  }, [chatInstanceId, fetchCanvases]);
+
   const selectConversation = useCallback(
     async (id: string | undefined) => {
       try {
@@ -677,8 +749,6 @@ export const useChatMessages = ({
     state.messages
   );
 
-  const canvasHistory = useCanvasHistory(chatModelId);
-
   const socketRef = useSocketHandler(
     chatInstanceId,
     user,
@@ -697,7 +767,20 @@ export const useChatMessages = ({
     debug
   );
 
-  const { uploadFile, isUploading } = useFileUpload({chatModelId, chatInstanceId, user, config, dispatch});
+  const { uploadFile, isUploading } = useFileUpload({
+    chatModelId, 
+    chatInstanceId, 
+    user, 
+    config,
+    onUploadSuccess: (data) => {
+      console.log("File uploaded successfully:", data);
+      // Refresh canvases after successful upload
+      fetchCanvases();
+    },
+    onUploadError: (error) => {
+      console.error("File upload error:", error);
+    }
+  });
 
   useEffect(() => {
     if (!chatInstanceId || !socketRef?.current) return;

@@ -17,7 +17,7 @@ import {
   saveConversationStarters,
   saveSuggestions,
 } from "../../utils/localStorageHelpers";
-import useCanvasHistory, { Canvas } from "../canva/useCanvasHistory";
+import useCanvasHistory from "../canva/useCanvasHistory";
 import { CanvasLiveUpdate } from "../fileUpload/useFileUpload";
 
 interface SocketLogger {
@@ -326,11 +326,25 @@ export const useSocketHandler = (
 
     socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
       trackEvent("canvas-live-update");
-      console.log("canvas-live-update", data);
+      logger.group("Canvas Live Update");
+      logger.log("Canvas ID:", data.canvasId);
+      logger.log("Updates count:", data.updates?.length || 0);
+      
+      // Apply updates through useCanvasHistory
+      try {
+        canvasHistory.applyCanvasLiveUpdate(data);
+        logger.log("Canvas update applied successfully via useCanvasHistory");
+      } catch (error) {
+        logger.error("Error applying canvas update via useCanvasHistory:", error);
+      }
+      
+      // Also dispatch to reducer for backward compatibility
       dispatch({
-        type: ChatActionTypes.UPDATE_CANVAS,
-        payload: { canvas: data },
+        type: ChatActionTypes.CANVAS_LIVE_UPDATE,
+        payload: { canvasUpdate: data },
       });
+      
+      logger.groupEnd();
     });
 
     socket.on("update-suggestions", (data) => {
@@ -410,9 +424,18 @@ export const useSocketHandler = (
       setActiveTool(data);
     });
 
-    socket.on("canvas:update", (canvas: Canvas) => {
+    // Legacy canvas events for backward compatibility
+    socket.on("canvas:update", (canvas: any) => {
       trackEvent("canvas:update");
-      canvasHistory.updateCanvas(canvas);
+      logger.log("Legacy canvas:update event received");
+      try {
+        // Convert legacy canvas format to new format if needed
+        if (canvasHistory.updateCanvas && typeof canvasHistory.updateCanvas === 'function') {
+          canvasHistory.updateCanvas(canvas);
+        }
+      } catch (error) {
+        logger.error("Error handling legacy canvas:update:", error);
+      }
     });
 
     socket.on(
@@ -427,7 +450,14 @@ export const useSocketHandler = (
         lines: string[];
       }) => {
         trackEvent("canvas:line-update");
-        canvasHistory.updateLineRange(start, end, lines);
+        logger.log("Legacy canvas:line-update event received");
+        try {
+          if (canvasHistory.updateLineRange && typeof canvasHistory.updateLineRange === 'function') {
+            canvasHistory.updateLineRange(start, end, lines);
+          }
+        } catch (error) {
+          logger.error("Error handling legacy canvas:line-update:", error);
+        }
       }
     );
 
@@ -454,7 +484,7 @@ export const useSocketHandler = (
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, canvasHistory]);
 
   return socketRef;
 };

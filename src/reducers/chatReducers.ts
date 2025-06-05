@@ -15,8 +15,8 @@ export enum ChatActionTypes {
   UPDATE_MESSAGE = "UPDATE_MESSAGE",
   UPDATE_TITLE = "UPDATE_TITLE",
   SET_LOADING = "SET_LOADING",
-  UPDATE_CANVAS = "UPDATE_CANVAS",
   SET_CANVASES = "SET_CANVASES",
+  CANVAS_LIVE_UPDATE = "CANVAS_LIVE_UPDATE",
 }
 
 interface ChatState {
@@ -97,8 +97,8 @@ interface ChatAction {
     userId?: string;
     isLoading?: boolean;
     resetMessages?: boolean;
-    canvas?: CanvasLiveUpdate;
     canvases?: CanvasFullContent[];
+    canvasUpdate?: CanvasLiveUpdate;
   };
 }
 
@@ -421,121 +421,18 @@ export const chatReducer = (
         isLoading: action.payload.isLoading ?? false,
       };
 
-    case ChatActionTypes.UPDATE_CANVAS:
-      if (!action.payload.canvas) return state;
-      
-      const { canvasId, updates } = action.payload.canvas;
-
-      console.log("State canvases", state.canvases);
-      console.log("Updating canvas", canvasId, updates);
-      
-      return {
-        ...state,
-        canvases: state.canvases.map(canvas => {
-          if (canvas.id === canvasId) {
-            let updatedContent = canvas.content;
-            const lines = updatedContent.split('\n');
-            
-            // Sort updates by line number in descending order to avoid index shifting issues
-            const sortedUpdates = [...updates].sort((a, b) => b.lineNumber - a.lineNumber);
-            
-            sortedUpdates.forEach(update => {
-              const { lineNumber, oldContent, newContent } = update;
-              
-              // Handle both 0-based and 1-based line numbers
-              const zeroBasedLineNumber = lineNumber;
-              const oneBasedLineNumber = lineNumber - 1;
-              
-              // Try to find the content at the expected line number
-              let targetLineIndex = -1;
-              let foundMatch = false;
-              
-              // First, try exact match at the specified line number (0-based)
-              if (zeroBasedLineNumber >= 0 && zeroBasedLineNumber < lines.length) {
-                if (lines[zeroBasedLineNumber] === oldContent || !oldContent) {
-                  targetLineIndex = zeroBasedLineNumber;
-                  foundMatch = true;
-                }
-              }
-              
-              // If not found, try 1-based line number
-              if (!foundMatch && oneBasedLineNumber >= 0 && oneBasedLineNumber < lines.length) {
-                if (lines[oneBasedLineNumber] === oldContent || !oldContent) {
-                  targetLineIndex = oneBasedLineNumber;
-                  foundMatch = true;
-                }
-              }
-              
-              // If exact match failed, try fuzzy matching around the expected line
-              if (!foundMatch && oldContent) {
-                const searchRange = 5; // Search within 5 lines of the expected position
-                const startSearch = Math.max(0, Math.min(zeroBasedLineNumber, oneBasedLineNumber) - searchRange);
-                const endSearch = Math.min(lines.length - 1, Math.max(zeroBasedLineNumber, oneBasedLineNumber) + searchRange);
-                
-                for (let i = startSearch; i <= endSearch; i++) {
-                  // Try exact match first
-                  if (lines[i] === oldContent) {
-                    targetLineIndex = i;
-                    foundMatch = true;
-                    break;
-                  }
-                  
-                  // Try trimmed match (remove extra whitespace)
-                  if (lines[i].trim() === oldContent.trim()) {
-                    targetLineIndex = i;
-                    foundMatch = true;
-                    break;
-                  }
-                  
-                  // Try partial match (check if old content is contained in the line)
-                  if (oldContent.length > 10 && lines[i].includes(oldContent.trim())) {
-                    targetLineIndex = i;
-                    foundMatch = true;
-                    break;
-                  }
-                }
-              }
-              
-              // Apply the update
-              if (foundMatch && targetLineIndex !== -1) {
-                lines[targetLineIndex] = newContent;
-                console.log(`Successfully updated line ${targetLineIndex} (original line ${lineNumber})`);
-              } else if (zeroBasedLineNumber === lines.length) {
-                // Append new line at the end
-                lines.push(newContent);
-                console.log(`Appended new line at position ${lines.length - 1}`);
-              } else {
-                // Fallback: try to replace at the original line number anyway
-                const fallbackIndex = Math.min(zeroBasedLineNumber, lines.length - 1);
-                if (fallbackIndex >= 0) {
-                  console.warn(`Line content mismatch at line ${lineNumber}. Expected: "${oldContent}", Found: "${lines[fallbackIndex] || 'undefined'}". Applying update anyway.`);
-                  lines[fallbackIndex] = newContent;
-                } else {
-                  console.error(`Cannot apply update for line ${lineNumber}: out of bounds and no fallback available`);
-                }
-              }
-            });
-            
-            const updatedCanvas = {
-              ...canvas,
-              content: lines.join('\n')
-            };
-            
-            console.log("Canvas updated successfully");
-            
-            return updatedCanvas;
-          }
-
-          return canvas;
-        })
-      };
-
     case ChatActionTypes.SET_CANVASES:
       console.log("Setting canvases", action.payload);
       return {
         ...state,
         canvases: action.payload.canvases || [],
       };
+
+    case ChatActionTypes.CANVAS_LIVE_UPDATE:
+      // Canvas live updates are now handled by useCanvasHistory
+      // This action is kept for backward compatibility but doesn't modify state
+      console.log("Canvas live update received (handled by useCanvasHistory):", action.payload.canvasUpdate);
+      return state;
 
     default:
       return state;

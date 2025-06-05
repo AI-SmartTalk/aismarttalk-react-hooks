@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
-import { FetchCanvasResponse, UploadResponse } from '../../types/canvas';
+import { useState } from 'react';
+import { UploadResponse } from '../../types/canvas';
 import { defaultApiUrl } from '../../types/config';
-import { ChatActionTypes } from '../../reducers/chatReducers';
 
 /**
  * Props for the useFileUpload hook
@@ -31,8 +30,10 @@ interface UseFileUploadProps {
     /** User's name */
     name?: string;
   };
-  /** Dispatch function from chat reducer */
-  dispatch: Function;
+  /** Callback function called after successful upload */
+  onUploadSuccess?: (data: UploadResponse) => void;
+  /** Callback function called after upload error */
+  onUploadError?: (error: string) => void;
 }
 
 export interface CanvasFullContent {
@@ -58,27 +59,17 @@ export function useFileUpload({
   chatModelId, 
   chatInstanceId, 
   user, 
-  config, 
-  dispatch
+  config,
+  onUploadSuccess,
+  onUploadError
 }: UseFileUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   console.log("config in useFileUpload", config);
 
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
-
-  useEffect(() => {
-    console.log("Fetching canvases");
-    fetchCanvases().then((fetchedCanvases) => {
-      dispatch({
-        type: ChatActionTypes.SET_CANVASES,
-        payload: { canvases: fetchedCanvases },
-      });
-    });
-  }, []);
 
   const uploadFile = async (file: File): Promise<UploadResponse> => {
     setIsUploading(true);
@@ -89,7 +80,6 @@ export function useFileUpload({
       formData.append('file', file);
 
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
         appToken: finalApiToken,
       };
 
@@ -103,6 +93,7 @@ export function useFileUpload({
         {
           method: 'POST',
           body: formData,
+          headers: headers,
         }
       );
 
@@ -127,84 +118,40 @@ export function useFileUpload({
 
       const data = await response.json();
       console.log("Uploaded file", data);
+      
+      // Call success callback if provided
+      if (onUploadSuccess) {
+        onUploadSuccess(data);
+      }
+      
       return data;
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to upload file';
       setError(errorMessage);
+      
+      // Call error callback if provided
+      if (onUploadError) {
+        onUploadError(errorMessage);
+      }
+      
       return {
         success: false,
         error: errorMessage
       };
     } finally {
       setIsUploading(false);
-      refreshCanvases();
     }
-  };
-
-  const fetchCanvases = async (): Promise<CanvasFullContent[]> => {
-    setIsFetching(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`,
-        {
-          method: 'GET',
-        }
-      );
-
-      if (!response.ok) {
-        let errorMessage = `Failed to fetch canvases (${response.status})`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          try {
-            const textError = await response.text();
-            if (textError) {
-              errorMessage = textError;
-            }
-          } catch {
-            // Keep default error message
-          }
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-      console.log("Fetched canvases", data);
-      return data;
-    } catch (err: any) {
-      const errorMessage = err.message || 'Failed to fetch canvases';
-      setError(errorMessage);
-      return [];
-    } finally {
-      setIsFetching(false);
-    }
-  };
-
-  const refreshCanvases = () => {
-    console.log("Refreshing canvases");
-    fetchCanvases().then((fetchedCanvases) => {
-      dispatch({
-        type: ChatActionTypes.SET_CANVASES,
-        payload: { canvases: fetchedCanvases },
-      });
-    });
   };
 
   return {
     // File operations
     uploadFile,
-    fetchCanvases,
         
     // State
     isUploading,
-    isFetching,
     error,
     
     // Utility methods
-    refreshCanvases,
     clearError: () => setError(null)
   };
 }

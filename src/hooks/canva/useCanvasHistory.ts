@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { CanvasFullContent, LineUpdate, CanvasLiveUpdate } from "../fileUpload/useFileUpload";
 
 /**
  * Represents a canvas with a title and content lines.
@@ -11,59 +12,267 @@ export interface Canvas {
 }
 
 /**
- * Hook to manage canvas history with persistent storage.
+ * Extended canvas interface matching the API structure
+ */
+export interface ExtendedCanvas extends CanvasFullContent {
+  /** Array of content lines derived from content string */
+  contentLines: string[];
+}
+
+/**
+ * Hook to manage multiple canvases with persistent storage and live updates.
  * @param chatModelId - Unique identifier for the chat model
+ * @param chatInstanceId - Unique identifier for the chat instance
  * @returns Object containing canvas state and management functions
  */
-export default function useCanvasHistory(chatModelId: string) {
-  const storageKey = `canvasHistory:${chatModelId}`;
+export default function useCanvasHistory(chatModelId: string, chatInstanceId: string) {
+  const storageKey = `canvasHistory:${chatModelId}:${chatInstanceId}`;
 
+  // Multiple canvases state
+  const [canvases, setCanvases] = useState<ExtendedCanvas[]>([]);
+  const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
+  
+  // Legacy single canvas interface for backward compatibility
   const [canvas, setCanvas] = useState<Canvas>({ title: "", content: [] });
   const [history, setHistory] = useState<Canvas[]>([]);
 
+  // Helper function to convert CanvasFullContent to ExtendedCanvas
+  const toExtendedCanvas = useCallback((canvasData: CanvasFullContent): ExtendedCanvas => {
+    return {
+      ...canvasData,
+      contentLines: canvasData.content ? canvasData.content.split('\n') : []
+    };
+  }, []);
+
+  // Helper function to convert ExtendedCanvas to legacy Canvas format
+  const toLegacyCanvas = useCallback((extendedCanvas: ExtendedCanvas): Canvas => {
+    return {
+      title: extendedCanvas.id,
+      content: extendedCanvas.contentLines
+    };
+  }, []);
+
+  // Update legacy canvas state when active canvas changes
   useEffect(() => {
-    const storedHistory = localStorage.getItem(storageKey);
-    if (storedHistory) {
+    if (activeCanvasId && canvases.length > 0) {
+      const activeCanvas = canvases.find(c => c.id === activeCanvasId);
+      if (activeCanvas) {
+        const legacyCanvas = toLegacyCanvas(activeCanvas);
+        setCanvas(legacyCanvas);
+        setHistory([legacyCanvas, ...history.filter(h => h.title !== legacyCanvas.title)]);
+      }
+    } else if (canvases.length > 0) {
+      // Default to first canvas if none selected
+      const firstCanvas = canvases[0];
+      setActiveCanvasId(firstCanvas.id);
+      const legacyCanvas = toLegacyCanvas(firstCanvas);
+      setCanvas(legacyCanvas);
+      setHistory([legacyCanvas]);
+    }
+  }, [activeCanvasId, canvases, toLegacyCanvas]);
+
+  // Load canvases from storage on initialization
+  useEffect(() => {
+    const storedCanvases = localStorage.getItem(storageKey);
+    if (storedCanvases) {
       try {
-        const parsedHistory: Canvas[] = JSON.parse(storedHistory);
-        setHistory(parsedHistory);
-        if (parsedHistory.length > 0) {
-          setCanvas(parsedHistory[0]);
+        const parsedCanvases: ExtendedCanvas[] = JSON.parse(storedCanvases);
+        setCanvases(parsedCanvases);
+        if (parsedCanvases.length > 0 && !activeCanvasId) {
+          setActiveCanvasId(parsedCanvases[0].id);
         }
       } catch (err) {
-        console.error("Error parsing stored canvas history:", err);
+        console.error("Error parsing stored canvases:", err);
       }
-    } else {
-      const defaultCanvas: Canvas = { title: "Untitled", content: [""] };
-      setCanvas(defaultCanvas);
-      setHistory([defaultCanvas]);
-      localStorage.setItem(storageKey, JSON.stringify([defaultCanvas]));
     }
-  }, [chatModelId, storageKey]);
+  }, [chatModelId, chatInstanceId, storageKey, activeCanvasId]);
 
-  const persistHistory = (newHistory: Canvas[]) => {
-    localStorage.setItem(storageKey, JSON.stringify(newHistory));
-  };
+  const persistCanvases = useCallback((newCanvases: ExtendedCanvas[]) => {
+    localStorage.setItem(storageKey, JSON.stringify(newCanvases));
+  }, [storageKey]);
 
   /**
-   * Updates the entire canvas with new content.
-   * @param newCanvas - The new canvas to replace the current one
+   * Set all canvases from API data
    */
-  const updateCanvas = (newCanvas: Canvas): void => {
+  const setCanvasesFromAPI = useCallback((apiCanvases: CanvasFullContent[]) => {
+    const extendedCanvases = apiCanvases.map(toExtendedCanvas);
+    setCanvases(extendedCanvases);
+    persistCanvases(extendedCanvases);
+    
+    // Set active canvas to first one if none selected
+    if (extendedCanvases.length > 0 && !activeCanvasId) {
+      setActiveCanvasId(extendedCanvases[0].id);
+    }
+  }, [toExtendedCanvas, persistCanvases, activeCanvasId]);
+
+  /**
+   * Add a new canvas
+   */
+  const addCanvas = useCallback((newCanvas: CanvasFullContent) => {
+    const extendedCanvas = toExtendedCanvas(newCanvas);
+    setCanvases(prev => {
+      const updated = [...prev, extendedCanvas];
+      persistCanvases(updated);
+      return updated;
+    });
+    
+    // Set as active if first canvas
+    if (canvases.length === 0) {
+      setActiveCanvasId(newCanvas.id);
+    }
+  }, [toExtendedCanvas, persistCanvases, canvases.length]);
+
+  /**
+   * Update a specific canvas with live updates
+   */
+  const applyCanvasLiveUpdate = useCallback((update: CanvasLiveUpdate) => {
+    const { canvasId, updates } = update;
+    
+    setCanvases(prev => {
+      const updated = prev.map(canvas => {
+        if (canvas.id === canvasId) {
+          let updatedContent = canvas.content;
+          const lines = updatedContent.split('\n');
+          
+          // Sort updates by line number in descending order to avoid index shifting issues
+          const sortedUpdates = [...updates].sort((a, b) => b.lineNumber - a.lineNumber);
+          
+          sortedUpdates.forEach(lineUpdate => {
+            const { lineNumber, oldContent, newContent } = lineUpdate;
+            
+            // Handle both 0-based and 1-based line numbers
+            const zeroBasedLineNumber = lineNumber;
+            const oneBasedLineNumber = lineNumber - 1;
+            
+            // Try to find the content at the expected line number
+            let targetLineIndex = -1;
+            let foundMatch = false;
+            
+            // First, try exact match at the specified line number (0-based)
+            if (zeroBasedLineNumber >= 0 && zeroBasedLineNumber < lines.length) {
+              if (lines[zeroBasedLineNumber] === oldContent || !oldContent) {
+                targetLineIndex = zeroBasedLineNumber;
+                foundMatch = true;
+              }
+            }
+            
+            // If not found, try 1-based line number
+            if (!foundMatch && oneBasedLineNumber >= 0 && oneBasedLineNumber < lines.length) {
+              if (lines[oneBasedLineNumber] === oldContent || !oldContent) {
+                targetLineIndex = oneBasedLineNumber;
+                foundMatch = true;
+              }
+            }
+            
+            // If exact match failed, try fuzzy matching around the expected line
+            if (!foundMatch && oldContent) {
+              const searchRange = 5; // Search within 5 lines of the expected position
+              const startSearch = Math.max(0, Math.min(zeroBasedLineNumber, oneBasedLineNumber) - searchRange);
+              const endSearch = Math.min(lines.length - 1, Math.max(zeroBasedLineNumber, oneBasedLineNumber) + searchRange);
+              
+              for (let i = startSearch; i <= endSearch; i++) {
+                // Try exact match first
+                if (lines[i] === oldContent) {
+                  targetLineIndex = i;
+                  foundMatch = true;
+                  break;
+                }
+                
+                // Try trimmed match (remove extra whitespace)
+                if (lines[i].trim() === oldContent.trim()) {
+                  targetLineIndex = i;
+                  foundMatch = true;
+                  break;
+                }
+                
+                // Try partial match (check if old content is contained in the line)
+                if (oldContent.length > 10 && lines[i].includes(oldContent.trim())) {
+                  targetLineIndex = i;
+                  foundMatch = true;
+                  break;
+                }
+              }
+            }
+            
+            // Apply the update
+            if (foundMatch && targetLineIndex !== -1) {
+              lines[targetLineIndex] = newContent;
+              console.log(`Successfully updated line ${targetLineIndex} (original line ${lineNumber})`);
+            } else if (zeroBasedLineNumber === lines.length) {
+              // Append new line at the end
+              lines.push(newContent);
+              console.log(`Appended new line at position ${lines.length - 1}`);
+            } else {
+              // Fallback: try to replace at the original line number anyway
+              const fallbackIndex = Math.min(zeroBasedLineNumber, lines.length - 1);
+              if (fallbackIndex >= 0) {
+                console.warn(`Line content mismatch at line ${lineNumber}. Expected: "${oldContent}", Found: "${lines[fallbackIndex] || 'undefined'}". Applying update anyway.`);
+                lines[fallbackIndex] = newContent;
+              } else {
+                console.error(`Cannot apply update for line ${lineNumber}: out of bounds and no fallback available`);
+              }
+            }
+          });
+          
+          const updatedCanvasContent = lines.join('\n');
+          
+          return {
+            ...canvas,
+            content: updatedCanvasContent,
+            contentLines: lines
+          };
+        }
+        return canvas;
+      });
+      
+      persistCanvases(updated);
+      return updated;
+    });
+  }, [persistCanvases]);
+
+  /**
+   * Get a specific canvas by ID
+   */
+  const getCanvasById = useCallback((canvasId: string): ExtendedCanvas | undefined => {
+    return canvases.find(c => c.id === canvasId);
+  }, [canvases]);
+
+  /**
+   * Switch to a different active canvas
+   */
+  const switchActiveCanvas = useCallback((canvasId: string) => {
+    if (canvases.find(c => c.id === canvasId)) {
+      setActiveCanvasId(canvasId);
+    } else {
+      throw new Error("Canvas not found");
+    }
+  }, [canvases]);
+
+  // Legacy methods for backward compatibility
+  const updateCanvas = useCallback((newCanvas: Canvas): void => {
+    if (activeCanvasId) {
+      setCanvases(prev => {
+        const updated = prev.map(canvas => {
+          if (canvas.id === activeCanvasId) {
+            return {
+              ...canvas,
+              content: newCanvas.content.join('\n'),
+              contentLines: newCanvas.content
+            };
+          }
+          return canvas;
+        });
+        persistCanvases(updated);
+        return updated;
+      });
+    }
+    
     setCanvas(newCanvas);
     const newHistory = [newCanvas, ...history];
     setHistory(newHistory);
-    persistHistory(newHistory);
-  };
+  }, [activeCanvasId, history, persistCanvases]);
 
-  /**
-   * Updates a specific range of lines within the canvas.
-   * @param start - Starting line index (inclusive)
-   * @param end - Ending line index (inclusive)
-   * @param newLines - Array of new lines to insert
-   * @throws {Error} If indices are out of bounds
-   */
-  const updateLineRange = (
+  const updateLineRange = useCallback((
     start: number,
     end: number,
     newLines: string[]
@@ -72,7 +281,38 @@ export default function useCanvasHistory(chatModelId: string) {
       throw new Error("Invalid line range specified");
     }
 
-    setCanvas((prev) => {
+    if (!activeCanvasId) return;
+
+    setCanvases(prev => {
+      const updated = prev.map(canvas => {
+        if (canvas.id === activeCanvasId) {
+          if (end >= canvas.contentLines.length) {
+            throw new Error("Line range exceeds canvas content length");
+          }
+
+          const newContentLines = [...canvas.contentLines];
+          newLines.forEach((line, index) => {
+            const targetIndex = start + index;
+            if (targetIndex <= end) {
+              newContentLines[targetIndex] = line;
+            }
+          });
+
+          return {
+            ...canvas,
+            content: newContentLines.join('\n'),
+            contentLines: newContentLines
+          };
+        }
+        return canvas;
+      });
+      
+      persistCanvases(updated);
+      return updated;
+    });
+
+    // Update legacy state
+    setCanvas(prev => {
       if (end >= prev.content.length) {
         throw new Error("Line range exceeds canvas content length");
       }
@@ -88,23 +328,42 @@ export default function useCanvasHistory(chatModelId: string) {
       const updatedCanvas = { ...prev, content: newContent };
       const newHistory = [updatedCanvas, ...history];
       setHistory(newHistory);
-      persistHistory(newHistory);
       return updatedCanvas;
     });
-  };
+  }, [activeCanvasId, history, persistCanvases]);
 
-  /**
-   * Inserts a new line at the specified index.
-   * @param lineIndex - Index where the new line should be inserted
-   * @param text - Content of the new line
-   * @throws {Error} If index is out of bounds
-   */
-  const insertAtLine = (lineIndex: number, text: string): void => {
+  const insertAtLine = useCallback((lineIndex: number, text: string): void => {
     if (lineIndex < 0) {
       throw new Error("Line index cannot be negative");
     }
 
-    setCanvas((prev) => {
+    if (!activeCanvasId) return;
+
+    setCanvases(prev => {
+      const updated = prev.map(canvas => {
+        if (canvas.id === activeCanvasId) {
+          if (lineIndex > canvas.contentLines.length) {
+            throw new Error("Line index exceeds canvas content length");
+          }
+
+          const newContentLines = [...canvas.contentLines];
+          newContentLines.splice(lineIndex, 0, text);
+
+          return {
+            ...canvas,
+            content: newContentLines.join('\n'),
+            contentLines: newContentLines
+          };
+        }
+        return canvas;
+      });
+      
+      persistCanvases(updated);
+      return updated;
+    });
+
+    // Update legacy state
+    setCanvas(prev => {
       if (lineIndex > prev.content.length) {
         throw new Error("Line index exceeds canvas content length");
       }
@@ -114,23 +373,43 @@ export default function useCanvasHistory(chatModelId: string) {
       const updatedCanvas = { ...prev, content: newContent };
       const newHistory = [updatedCanvas, ...history];
       setHistory(newHistory);
-      persistHistory(newHistory);
       return updatedCanvas;
     });
-  };
+  }, [activeCanvasId, history, persistCanvases]);
 
-  /**
-   * Deletes a range of lines from the canvas.
-   * @param start - Starting line index (inclusive)
-   * @param end - Ending line index (inclusive)
-   * @throws {Error} If indices are out of bounds
-   */
-  const deleteLineRange = (start: number, end: number): void => {
+  const deleteLineRange = useCallback((start: number, end: number): void => {
     if (start < 0 || end < start) {
       throw new Error("Invalid line range specified");
     }
 
-    setCanvas((prev) => {
+    if (!activeCanvasId) return;
+
+    setCanvases(prev => {
+      const updated = prev.map(canvas => {
+        if (canvas.id === activeCanvasId) {
+          if (end >= canvas.contentLines.length) {
+            throw new Error("Line range exceeds canvas content length");
+          }
+
+          const newContentLines = canvas.contentLines.filter(
+            (_, index) => index < start || index > end
+          );
+
+          return {
+            ...canvas,
+            content: newContentLines.join('\n'),
+            contentLines: newContentLines
+          };
+        }
+        return canvas;
+      });
+      
+      persistCanvases(updated);
+      return updated;
+    });
+
+    // Update legacy state
+    setCanvas(prev => {
       if (end >= prev.content.length) {
         throw new Error("Line range exceeds canvas content length");
       }
@@ -141,37 +420,15 @@ export default function useCanvasHistory(chatModelId: string) {
       const updatedCanvas = { ...prev, content: newContent };
       const newHistory = [updatedCanvas, ...history];
       setHistory(newHistory);
-      persistHistory(newHistory);
       return updatedCanvas;
     });
-  };
+  }, [activeCanvasId, history, persistCanvases]);
 
-  /**
-   * Switches to a different canvas from history.
-   * @param canvasIndex - Index of the canvas in history to switch to
-   * @throws {Error} If index is out of bounds
-   */
-  const switchActiveCanvas = (canvasIndex: number): void => {
-    if (canvasIndex < 0 || canvasIndex >= history.length) {
-      throw new Error("Canvas index out of bounds");
-    }
-    setCanvas(history[canvasIndex]);
-  };
-
-  /**
-   * Converts the current canvas content to a string with line breaks.
-   * @returns The canvas content as a single string
-   */
-  const toString = (): string => {
+  const toString = useCallback((): string => {
     return canvas.content.join("\n\n");
-  };
+  }, [canvas.content]);
 
-  /**
-   * Gets the canvas content with line numbers.
-   * @param startLine - Optional starting line number (defaults to 1)
-   * @returns Array of strings with format "lineNumber: content"
-   */
-  const getNumberedLines = (startLine: number = 1): string[] => {
+  const getNumberedLines = useCallback((startLine: number = 1): string[] => {
     const maxLineNumberWidth = String(
       canvas.content.length + startLine - 1
     ).length;
@@ -183,16 +440,25 @@ export default function useCanvasHistory(chatModelId: string) {
       );
       return `${paddedLineNumber}: ${line}`;
     });
-  };
+  }, [canvas.content]);
 
   return {
+    // New multi-canvas interface
+    canvases,
+    activeCanvasId,
+    setCanvasesFromAPI,
+    addCanvas,
+    applyCanvasLiveUpdate,
+    getCanvasById,
+    switchActiveCanvas,
+    
+    // Legacy single canvas interface (for backward compatibility)
     canvas,
     history,
     updateCanvas,
     updateLineRange,
     insertAtLine,
     deleteLineRange,
-    switchActiveCanvas,
     toString,
     getNumberedLines,
   };
