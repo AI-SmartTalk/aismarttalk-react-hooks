@@ -34,6 +34,9 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
   const [canvases, setCanvases] = useState<ExtendedCanvas[]>([]);
   const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
   
+  // Canvas history state - track versions of each canvas
+  const [canvasVersionHistory, setCanvasVersionHistory] = useState<Record<string, ExtendedCanvas[]>>({});
+  
   // Legacy single canvas interface for backward compatibility
   const [canvas, setCanvas] = useState<Canvas>({ title: "", content: [] });
   const [history, setHistory] = useState<Canvas[]>([]);
@@ -41,6 +44,7 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
   // Use refs to track initialization to prevent loops
   const isInitializedRef = useRef<boolean>(false);
   const storageLoadedRef = useRef<boolean>(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper function to convert CanvasFullContent to ExtendedCanvas
   const toExtendedCanvas = useCallback((canvasData: CanvasFullContent): ExtendedCanvas => {
@@ -118,7 +122,125 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
   const persistCanvases = useCallback((newCanvases: ExtendedCanvas[]) => {
     console.log(`[CANVAS_HISTORY] Persisting ${newCanvases.length} canvases to storage`);
     localStorage.setItem(storageKey, JSON.stringify(newCanvases));
+    
+    // Also persist the canvas version history
+    if (canvasVersionHistory && Object.keys(canvasVersionHistory).length > 0) {
+      localStorage.setItem(`${storageKey}:versions`, JSON.stringify(canvasVersionHistory));
+    }
+  }, [storageKey, canvasVersionHistory]);
+
+  /**
+   * Save a version of a canvas to its history
+   */
+  const saveCanvasVersion = useCallback((canvas: ExtendedCanvas) => {
+    console.log(`[CANVAS_HISTORY] Saving version for canvas: ${canvas.id}`, canvas);
+    
+    setCanvasVersionHistory(prev => {
+      const canvasHistory = prev[canvas.id] || [];
+      
+      // Check if this version is different from the last saved version
+      const lastVersion = canvasHistory[0];
+      if (lastVersion && lastVersion.content === canvas.content) {
+        console.log(`[CANVAS_HISTORY] Skipping duplicate version for canvas: ${canvas.id}`);
+        return prev; // No change, don't save duplicate
+      }
+      
+      // Keep only the last 10 versions to avoid memory issues
+      const updatedHistory = [canvas, ...canvasHistory.slice(0, 9)];
+      
+      const newVersionHistory = {
+        ...prev,
+        [canvas.id]: updatedHistory
+      };
+      
+      console.log(`[CANVAS_HISTORY] Saved new version for canvas ${canvas.id}. Total versions: ${updatedHistory.length}`);
+      
+      // Debounced save to localStorage to avoid too frequent writes
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      
+      saveTimeoutRef.current = setTimeout(() => {
+        console.log(`[CANVAS_HISTORY] Persisting version history to localStorage for ${Object.keys(newVersionHistory).length} canvases`);
+        localStorage.setItem(`${storageKey}:versions`, JSON.stringify(newVersionHistory));
+      }, 1000);
+      
+      return newVersionHistory;
+    });
   }, [storageKey]);
+
+  /**
+   * Get version history for a specific canvas
+   */
+  const getCanvasVersionHistory = useCallback((canvasId: string): ExtendedCanvas[] => {
+    const versions = canvasVersionHistory[canvasId] || [];
+    console.log(`[CANVAS_HISTORY] getCanvasVersionHistory for ${canvasId}: ${versions.length} versions`);
+    return versions;
+  }, [canvasVersionHistory]);
+
+  /**
+   * Restore a specific version of a canvas
+   */
+  const restoreCanvasVersion = useCallback((canvasId: string, versionIndex: number) => {
+    console.log(`[CANVAS_HISTORY] Restoring canvas ${canvasId} to version ${versionIndex}`);
+    
+    const versions = canvasVersionHistory[canvasId];
+    if (!versions || versionIndex >= versions.length) {
+      console.error(`[CANVAS_HISTORY] Version ${versionIndex} not found for canvas ${canvasId}`);
+      return;
+    }
+    
+    const versionToRestore = versions[versionIndex];
+    
+    // Update the current canvas with the restored version
+    setCanvases(prev => {
+      const updated = prev.map(canvas => 
+        canvas.id === canvasId ? { 
+          ...versionToRestore,
+          // Add a lastRestored property to track when this was restored
+          lastRestored: new Date().toISOString()
+        } as ExtendedCanvas : canvas
+      );
+      persistCanvases(updated);
+      return updated;
+    });
+
+    // Update the version history by removing all versions that came after the restored one
+    setCanvasVersionHistory(prev => {
+      const currentVersions = prev[canvasId] || [];
+      
+      // Keep only versions from the restored index onwards (removing newer versions)
+      const updatedVersions = currentVersions.slice(versionIndex);
+      
+      // Update the first version (index 0) to be the restored version with current timestamp
+      if (updatedVersions.length > 0) {
+        updatedVersions[0] = {
+          ...versionToRestore,
+          // Store restore timestamp in a way that doesn't conflict with ExtendedCanvas
+          lastRestored: new Date().toISOString()
+        } as ExtendedCanvas;
+      }
+      
+      const newVersionHistory = {
+        ...prev,
+        [canvasId]: updatedVersions
+      };
+      
+      console.log(`[CANVAS_HISTORY] Updated version history for canvas ${canvasId}. Removed ${versionIndex} newer versions. Remaining: ${updatedVersions.length}`);
+      
+      // Persist to localStorage
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      
+      saveTimeoutRef.current = setTimeout(() => {
+        console.log(`[CANVAS_HISTORY] Persisting updated version history to localStorage`);
+        localStorage.setItem(`${storageKey}:versions`, JSON.stringify(newVersionHistory));
+      }, 1000);
+      
+      return newVersionHistory;
+    });
+  }, [canvasVersionHistory, persistCanvases, storageKey]);
 
   /**
    * Set all canvases from API data
@@ -131,13 +253,18 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     setCanvases(extendedCanvases);
     persistCanvases(extendedCanvases);
     
+    // Save initial versions for each canvas
+    extendedCanvases.forEach(canvas => {
+      saveCanvasVersion(canvas);
+    });
+    
     // Only set active canvas if none is selected AND this is initial load
     if (extendedCanvases.length > 0 && !activeCanvasId && !isInitializedRef.current) {
       console.log(`[CANVAS_HISTORY] Setting active canvas from API:`, extendedCanvases[0].id);
       setActiveCanvasId(extendedCanvases[0].id);
       isInitializedRef.current = true;
     }
-  }, [toExtendedCanvas, persistCanvases, activeCanvasId]);
+  }, [toExtendedCanvas, persistCanvases, activeCanvasId, saveCanvasVersion]);
 
   /**
    * Add a new canvas
@@ -153,12 +280,15 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
       return updated;
     });
     
+    // Save initial version
+    saveCanvasVersion(extendedCanvas);
+    
     // Set as active if first canvas
     if (canvases.length === 0) {
       console.log(`[CANVAS_HISTORY] Setting as active canvas (first canvas)`);
       setActiveCanvasId(newCanvas.id);
     }
-  }, [toExtendedCanvas, persistCanvases, canvases.length]);
+  }, [toExtendedCanvas, persistCanvases, canvases.length, saveCanvasVersion]);
 
   /**
    * Update a specific canvas with live updates
@@ -254,11 +384,16 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
           
           const updatedCanvasContent = lines.join('\n');
           
-          return {
+          const updatedCanvas = {
             ...canvas,
             content: updatedCanvasContent,
             contentLines: lines
           };
+          
+          // Save this version to history
+          saveCanvasVersion(updatedCanvas);
+          
+          return updatedCanvas;
         }
         return canvas;
       });
@@ -266,7 +401,7 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
       persistCanvases(updated);
       return updated;
     });
-  }, [persistCanvases]);
+  }, [persistCanvases, saveCanvasVersion]);
 
   /**
    * Get a specific canvas by ID
@@ -481,6 +616,38 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     });
   }, [canvas.content]);
 
+  // Load canvas version history from storage on initialization
+  useEffect(() => {
+    if (!storageLoadedRef.current) return;
+    
+    console.log(`[CANVAS_HISTORY] Loading version history from storage with key: ${storageKey}:versions`);
+    const storedVersionHistory = localStorage.getItem(`${storageKey}:versions`);
+    if (storedVersionHistory) {
+      try {
+        const parsedVersionHistory: Record<string, ExtendedCanvas[]> = JSON.parse(storedVersionHistory);
+        console.log(`[CANVAS_HISTORY] Loaded version history for ${Object.keys(parsedVersionHistory).length} canvases:`, Object.keys(parsedVersionHistory));
+        setCanvasVersionHistory(parsedVersionHistory);
+      } catch (err) {
+        console.error("[CANVAS_HISTORY] Error parsing stored version history:", err);
+      }
+    } else {
+      console.log(`[CANVAS_HISTORY] No stored version history found`);
+    }
+  }, [storageKey, storageLoadedRef.current]);
+
+  // Cleanup effect
+  useEffect(() => {
+    return () => {
+      // Save any pending canvas version history on unmount
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        if (canvasVersionHistory && Object.keys(canvasVersionHistory).length > 0) {
+          localStorage.setItem(`${storageKey}:versions`, JSON.stringify(canvasVersionHistory));
+        }
+      }
+    };
+  }, [storageKey, canvasVersionHistory]);
+
   console.log(`[CANVAS_HISTORY] Hook render complete. canvases: ${canvases.length}, activeCanvasId: ${activeCanvasId}`);
 
   return {
@@ -492,6 +659,12 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     applyCanvasLiveUpdate,
     getCanvasById,
     switchActiveCanvas,
+    
+    // Canvas history management
+    canvasVersionHistory,
+    getCanvasVersionHistory,
+    restoreCanvasVersion,
+    saveCanvasVersion,
     
     // Legacy single canvas interface (for backward compatibility)
     canvas,
