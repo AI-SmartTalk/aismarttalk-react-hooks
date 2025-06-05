@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CanvasFullContent, LineUpdate, CanvasLiveUpdate } from "../fileUpload/useFileUpload";
 
 /**
@@ -28,6 +28,8 @@ export interface ExtendedCanvas extends CanvasFullContent {
 export default function useCanvasHistory(chatModelId: string, chatInstanceId: string) {
   const storageKey = `canvasHistory:${chatModelId}:${chatInstanceId}`;
 
+  console.log(`[CANVAS_HISTORY] Hook called with chatModelId: ${chatModelId}, chatInstanceId: ${chatInstanceId}`);
+
   // Multiple canvases state
   const [canvases, setCanvases] = useState<ExtendedCanvas[]>([]);
   const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
@@ -35,9 +37,14 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
   // Legacy single canvas interface for backward compatibility
   const [canvas, setCanvas] = useState<Canvas>({ title: "", content: [] });
   const [history, setHistory] = useState<Canvas[]>([]);
+  
+  // Use refs to track initialization to prevent loops
+  const isInitializedRef = useRef<boolean>(false);
+  const storageLoadedRef = useRef<boolean>(false);
 
   // Helper function to convert CanvasFullContent to ExtendedCanvas
   const toExtendedCanvas = useCallback((canvasData: CanvasFullContent): ExtendedCanvas => {
+    console.log(`[CANVAS_HISTORY] Converting to ExtendedCanvas:`, canvasData.id);
     return {
       ...canvasData,
       contentLines: canvasData.content ? canvasData.content.split('\n') : []
@@ -46,48 +53,70 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
 
   // Helper function to convert ExtendedCanvas to legacy Canvas format
   const toLegacyCanvas = useCallback((extendedCanvas: ExtendedCanvas): Canvas => {
+    console.log(`[CANVAS_HISTORY] Converting to legacy Canvas:`, extendedCanvas.id);
     return {
       title: extendedCanvas.id,
       content: extendedCanvas.contentLines
     };
   }, []);
 
-  // Update legacy canvas state when active canvas changes
+  // Load canvases from storage on initialization - ONLY RUN ONCE
   useEffect(() => {
-    if (activeCanvasId && canvases.length > 0) {
-      const activeCanvas = canvases.find(c => c.id === activeCanvasId);
-      if (activeCanvas) {
-        const legacyCanvas = toLegacyCanvas(activeCanvas);
-        setCanvas(legacyCanvas);
-        setHistory([legacyCanvas, ...history.filter(h => h.title !== legacyCanvas.title)]);
-      }
-    } else if (canvases.length > 0) {
-      // Default to first canvas if none selected
-      const firstCanvas = canvases[0];
-      setActiveCanvasId(firstCanvas.id);
-      const legacyCanvas = toLegacyCanvas(firstCanvas);
-      setCanvas(legacyCanvas);
-      setHistory([legacyCanvas]);
-    }
-  }, [activeCanvasId, canvases, toLegacyCanvas]);
-
-  // Load canvases from storage on initialization
-  useEffect(() => {
+    if (storageLoadedRef.current) return;
+    
+    console.log(`[CANVAS_HISTORY] Effect - Load from storage triggered. storageKey: ${storageKey}`);
+    
     const storedCanvases = localStorage.getItem(storageKey);
     if (storedCanvases) {
       try {
         const parsedCanvases: ExtendedCanvas[] = JSON.parse(storedCanvases);
+        console.log(`[CANVAS_HISTORY] Loaded ${parsedCanvases.length} canvases from storage`);
         setCanvases(parsedCanvases);
         if (parsedCanvases.length > 0 && !activeCanvasId) {
+          console.log(`[CANVAS_HISTORY] Setting active canvas from storage:`, parsedCanvases[0].id);
           setActiveCanvasId(parsedCanvases[0].id);
         }
+        storageLoadedRef.current = true;
       } catch (err) {
-        console.error("Error parsing stored canvases:", err);
+        console.error("[CANVAS_HISTORY] Error parsing stored canvases:", err);
       }
+    } else {
+      console.log(`[CANVAS_HISTORY] No stored canvases found for key: ${storageKey}`);
+      storageLoadedRef.current = true;
     }
-  }, [chatModelId, chatInstanceId, storageKey, activeCanvasId]);
+  }, [chatModelId, chatInstanceId, storageKey]); // Remove activeCanvasId dependency
+
+  // Update legacy canvas state when active canvas changes - PREVENT INFINITE LOOP
+  useEffect(() => {
+    console.log(`[CANVAS_HISTORY] Effect - Update legacy canvas triggered. activeCanvasId: ${activeCanvasId}, canvases.length: ${canvases.length}`);
+    
+    if (activeCanvasId && canvases.length > 0) {
+      const activeCanvas = canvases.find(c => c.id === activeCanvasId);
+      if (activeCanvas) {
+        console.log(`[CANVAS_HISTORY] Found active canvas:`, activeCanvas.id);
+        const legacyCanvas = toLegacyCanvas(activeCanvas);
+        setCanvas(legacyCanvas);
+        // DON'T update history here to prevent circular dependency
+        setHistory(prev => {
+          // Only update if the canvas actually changed
+          if (prev.length === 0 || prev[0].title !== legacyCanvas.title) {
+            return [legacyCanvas, ...prev.filter(h => h.title !== legacyCanvas.title)];
+          }
+          return prev;
+        });
+      } else {
+        console.log(`[CANVAS_HISTORY] Active canvas not found in canvases array`);
+      }
+    } else if (canvases.length > 0 && !activeCanvasId) {
+      // Default to first canvas if none selected
+      const firstCanvas = canvases[0];
+      console.log(`[CANVAS_HISTORY] Setting default active canvas:`, firstCanvas.id);
+      setActiveCanvasId(firstCanvas.id);
+    }
+  }, [activeCanvasId, canvases, toLegacyCanvas]); // Remove history from dependencies to prevent loop
 
   const persistCanvases = useCallback((newCanvases: ExtendedCanvas[]) => {
+    console.log(`[CANVAS_HISTORY] Persisting ${newCanvases.length} canvases to storage`);
     localStorage.setItem(storageKey, JSON.stringify(newCanvases));
   }, [storageKey]);
 
@@ -95,13 +124,18 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
    * Set all canvases from API data
    */
   const setCanvasesFromAPI = useCallback((apiCanvases: CanvasFullContent[]) => {
+    console.log(`[CANVAS_HISTORY] setCanvasesFromAPI called with ${apiCanvases.length} canvases`);
+    console.log(`[CANVAS_HISTORY] API Canvas IDs:`, apiCanvases.map(c => c.id));
+    
     const extendedCanvases = apiCanvases.map(toExtendedCanvas);
     setCanvases(extendedCanvases);
     persistCanvases(extendedCanvases);
     
-    // Set active canvas to first one if none selected
-    if (extendedCanvases.length > 0 && !activeCanvasId) {
+    // Only set active canvas if none is selected AND this is initial load
+    if (extendedCanvases.length > 0 && !activeCanvasId && !isInitializedRef.current) {
+      console.log(`[CANVAS_HISTORY] Setting active canvas from API:`, extendedCanvases[0].id);
       setActiveCanvasId(extendedCanvases[0].id);
+      isInitializedRef.current = true;
     }
   }, [toExtendedCanvas, persistCanvases, activeCanvasId]);
 
@@ -109,8 +143,11 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
    * Add a new canvas
    */
   const addCanvas = useCallback((newCanvas: CanvasFullContent) => {
+    console.log(`[CANVAS_HISTORY] addCanvas called:`, newCanvas.id);
+    
     const extendedCanvas = toExtendedCanvas(newCanvas);
     setCanvases(prev => {
+      console.log(`[CANVAS_HISTORY] Adding canvas to existing ${prev.length} canvases`);
       const updated = [...prev, extendedCanvas];
       persistCanvases(updated);
       return updated;
@@ -118,6 +155,7 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     
     // Set as active if first canvas
     if (canvases.length === 0) {
+      console.log(`[CANVAS_HISTORY] Setting as active canvas (first canvas)`);
       setActiveCanvasId(newCanvas.id);
     }
   }, [toExtendedCanvas, persistCanvases, canvases.length]);
@@ -127,10 +165,12 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
    */
   const applyCanvasLiveUpdate = useCallback((update: CanvasLiveUpdate) => {
     const { canvasId, updates } = update;
+    console.log(`[CANVAS_HISTORY] applyCanvasLiveUpdate called for canvas: ${canvasId}, updates: ${updates.length}`);
     
     setCanvases(prev => {
       const updated = prev.map(canvas => {
         if (canvas.id === canvasId) {
+          console.log(`[CANVAS_HISTORY] Applying live updates to canvas: ${canvasId}`);
           let updatedContent = canvas.content;
           const lines = updatedContent.split('\n');
           
@@ -197,11 +237,9 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
             // Apply the update
             if (foundMatch && targetLineIndex !== -1) {
               lines[targetLineIndex] = newContent;
-              console.log(`Successfully updated line ${targetLineIndex} (original line ${lineNumber})`);
             } else if (zeroBasedLineNumber === lines.length) {
               // Append new line at the end
               lines.push(newContent);
-              console.log(`Appended new line at position ${lines.length - 1}`);
             } else {
               // Fallback: try to replace at the original line number anyway
               const fallbackIndex = Math.min(zeroBasedLineNumber, lines.length - 1);
@@ -234,6 +272,7 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
    * Get a specific canvas by ID
    */
   const getCanvasById = useCallback((canvasId: string): ExtendedCanvas | undefined => {
+    console.log(`[CANVAS_HISTORY] getCanvasById called:`, canvasId);
     return canvases.find(c => c.id === canvasId);
   }, [canvases]);
 
@@ -241,15 +280,19 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
    * Switch to a different active canvas
    */
   const switchActiveCanvas = useCallback((canvasId: string) => {
+    console.log(`[CANVAS_HISTORY] switchActiveCanvas called:`, canvasId);
     if (canvases.find(c => c.id === canvasId)) {
       setActiveCanvasId(canvasId);
     } else {
+      console.error(`[CANVAS_HISTORY] Canvas not found:`, canvasId);
       throw new Error("Canvas not found");
     }
   }, [canvases]);
 
-  // Legacy methods for backward compatibility
+  // Legacy methods for backward compatibility - STABLE CALLBACKS
   const updateCanvas = useCallback((newCanvas: Canvas): void => {
+    console.log(`[CANVAS_HISTORY] updateCanvas called (legacy):`, newCanvas.title);
+    
     if (activeCanvasId) {
       setCanvases(prev => {
         const updated = prev.map(canvas => {
@@ -268,15 +311,16 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     }
     
     setCanvas(newCanvas);
-    const newHistory = [newCanvas, ...history];
-    setHistory(newHistory);
-  }, [activeCanvasId, history, persistCanvases]);
+    // Don't update history here to prevent circular dependency
+  }, [activeCanvasId, persistCanvases]);
 
   const updateLineRange = useCallback((
     start: number,
     end: number,
     newLines: string[]
   ): void => {
+    console.log(`[CANVAS_HISTORY] updateLineRange called: start=${start}, end=${end}, newLines=${newLines.length}`);
+    
     if (start < 0 || end < start) {
       throw new Error("Invalid line range specified");
     }
@@ -325,14 +369,13 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
         }
       });
 
-      const updatedCanvas = { ...prev, content: newContent };
-      const newHistory = [updatedCanvas, ...history];
-      setHistory(newHistory);
-      return updatedCanvas;
+      return { ...prev, content: newContent };
     });
-  }, [activeCanvasId, history, persistCanvases]);
+  }, [activeCanvasId, persistCanvases]);
 
   const insertAtLine = useCallback((lineIndex: number, text: string): void => {
+    console.log(`[CANVAS_HISTORY] insertAtLine called: lineIndex=${lineIndex}`);
+    
     if (lineIndex < 0) {
       throw new Error("Line index cannot be negative");
     }
@@ -370,14 +413,13 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
 
       const newContent = [...prev.content];
       newContent.splice(lineIndex, 0, text);
-      const updatedCanvas = { ...prev, content: newContent };
-      const newHistory = [updatedCanvas, ...history];
-      setHistory(newHistory);
-      return updatedCanvas;
+      return { ...prev, content: newContent };
     });
-  }, [activeCanvasId, history, persistCanvases]);
+  }, [activeCanvasId, persistCanvases]);
 
   const deleteLineRange = useCallback((start: number, end: number): void => {
+    console.log(`[CANVAS_HISTORY] deleteLineRange called: start=${start}, end=${end}`);
+    
     if (start < 0 || end < start) {
       throw new Error("Invalid line range specified");
     }
@@ -417,12 +459,9 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
       const newContent = prev.content.filter(
         (_, index) => index < start || index > end
       );
-      const updatedCanvas = { ...prev, content: newContent };
-      const newHistory = [updatedCanvas, ...history];
-      setHistory(newHistory);
-      return updatedCanvas;
+      return { ...prev, content: newContent };
     });
-  }, [activeCanvasId, history, persistCanvases]);
+  }, [activeCanvasId, persistCanvases]);
 
   const toString = useCallback((): string => {
     return canvas.content.join("\n\n");
@@ -441,6 +480,8 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
       return `${paddedLineNumber}: ${line}`;
     });
   }, [canvas.content]);
+
+  console.log(`[CANVAS_HISTORY] Hook render complete. canvases: ${canvases.length}, activeCanvasId: ${activeCanvasId}`);
 
   return {
     // New multi-canvas interface
