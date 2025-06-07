@@ -822,7 +822,7 @@ export const useChatMessages = ({
     debug
   );
 
-  const { uploadFile, isUploading } = useFileUpload({
+  const { uploadFile, isUploading, restoreCanvas } = useFileUpload({
     chatModelId, 
     chatInstanceId, 
     user, 
@@ -1396,5 +1396,6 @@ export const useChatMessages = ({
     resetChat,
     uploadFile,
     isUploading,
+    restoreCanvas,
   };
 };

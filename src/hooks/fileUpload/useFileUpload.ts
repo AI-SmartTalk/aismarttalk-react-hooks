@@ -55,6 +55,8 @@ export interface CanvasLiveUpdate {
   updates: LineUpdate[];
 }
 
+// ... existing code ...
+
 export function useFileUpload({
   chatModelId, 
   chatInstanceId, 
@@ -161,11 +163,100 @@ export function useFileUpload({
     }
   };
 
+  const restoreCanvas = async (canvasId: string, content: string): Promise<UploadResponse> => {
+    console.log(`[FILE_UPLOAD] restoreCanvas called for canvasId: ${canvasId}`);
+    console.log(`[FILE_UPLOAD] Restore URL: ${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva/${canvasId}`);
+    
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        appToken: finalApiToken,
+      };
+
+      if (user?.token) {
+        headers["x-use-chatbot-auth"] = "true";
+        headers["Authorization"] = `Bearer ${user.token}`;
+        console.log(`[FILE_UPLOAD] Using user authentication for restore`);
+      } else {
+        console.log(`[FILE_UPLOAD] No user token, using app token only for restore`);
+      }
+
+      console.log(`[FILE_UPLOAD] Making POST request to restore canvas content`);
+      const response = await fetch(
+        `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva/${canvasId}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ content }),
+          headers: headers,
+        }
+      );
+
+      console.log(`[FILE_UPLOAD] Restore response status: ${response.status}`);
+
+      if (!response.ok) {
+        let errorMessage = `Canvas restore failed with status ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If response is not JSON, try to get text
+          try {
+            const textError = await response.text();
+            if (textError) {
+              errorMessage = textError;
+            }
+          } catch {
+            // If we can't get text, stick with the default error message
+          }
+        }
+        console.error(`[FILE_UPLOAD] Canvas restore failed:`, errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      console.log(`[FILE_UPLOAD] Canvas restore successful:`, data);
+      
+      // Call success callback if provided
+      if (onUploadSuccess) {
+        console.log(`[FILE_UPLOAD] Calling onUploadSuccess callback for restore`);
+        onUploadSuccess(data);
+      } else {
+        console.log(`[FILE_UPLOAD] No onUploadSuccess callback provided for restore`);
+      }
+      
+      return data;
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to restore canvas';
+      console.error(`[FILE_UPLOAD] Canvas restore error:`, errorMessage);
+      setError(errorMessage);
+      
+      // Call error callback if provided
+      if (onUploadError) {
+        console.log(`[FILE_UPLOAD] Calling onUploadError callback for restore`);
+        onUploadError(errorMessage);
+      } else {
+        console.log(`[FILE_UPLOAD] No onUploadError callback provided for restore`);
+      }
+      
+      return {
+        success: false,
+        error: errorMessage
+      };
+    } finally {
+      console.log(`[FILE_UPLOAD] Setting isUploading to false after restore`);
+      setIsUploading(false);
+    }
+  };
+
   console.log(`[FILE_UPLOAD] Hook render complete. isUploading: ${isUploading}, error: ${error}`);
 
   return {
     // File operations
     uploadFile,
+    restoreCanvas,
         
     // State
     isUploading,

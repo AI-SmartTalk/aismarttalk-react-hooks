@@ -199,6 +199,7 @@ export const useAISmarttalkChat = ({
     createNewChat,
     uploadFile,
     isUploading,
+    restoreCanvas,
   } = useChatMessages(chatMessagesProps);
 
   console.log(`[AISMARTTALK_CHAT] Chat messages hook result:`, {
@@ -388,6 +389,7 @@ export const useAISmarttalkChat = ({
 
     uploadFile,
     isUploading,
+    restoreCanvas,
   };
 };
 
