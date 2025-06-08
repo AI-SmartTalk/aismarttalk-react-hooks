@@ -827,6 +827,8 @@ export const useChatMessages = ({
     chatInstanceId, 
     user, 
     config,
+    existingCanvasCount: canvasHistory?.canvases?.length || 0,
+    maxCanvasCount: 3,
     onUploadSuccess: (data) => {
       console.log(`[CHAT_MESSAGE] File upload success callback triggered`, data);
       

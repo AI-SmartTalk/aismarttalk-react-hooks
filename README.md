@@ -329,7 +329,6 @@ This deduplication system works behind the scenes without requiring any special 
 - ⚡ Improved caching mechanisms for better performance.
 - 📜 Enhanced chat history management for a more reliable user experience.
 
-
 ### 1.3.0 ✨ Add User Config
 - 🛠️ Allow user configuration 
 ```ts
@@ -348,6 +347,13 @@ const { user, messages, onSend /* ... other values */ } = useAISmarttalkChat({
   }
 });
 ```
+
+### 1.2.5 - Canvas Limit Enhancement
+- 🚫 Added maximum 3-canvas limit per conversation to maintain performance and user experience
+- ✅ Integrated canvas count validation in `useFileUpload` hook with configurable limits
+- 🎯 Clear error messages when limit is reached, prompting users to delete existing canvases
+- 📊 UI displays current canvas count in badge for better user awareness
+- 🔧 Automatic enforcement for both file uploads and auto-canvas creation from paste
 
 ### 1.2.4 Refactor: Split Responsibilities of useMessage
 - 🔄 Restructured the useMessage hook to separate concerns, enhancing maintainability.
@@ -412,6 +418,8 @@ Enjoy integrating chat functionality with [AI Smarttalk](https://aismarttalk.tec
 
 The `useFileUpload` hook now integrates with the chat state management system and uses the existing WebSocket connection from `useSocketHandler` for real-time canvas updates.
 
+**Canvas Limit**: The system enforces a maximum of 3 canvases per conversation to maintain performance and user experience. When attempting to upload a 4th canvas, users will receive an error message prompting them to delete existing canvases first.
+
 ```tsx
 import React, { useReducer } from 'react';
 import { 
@@ -462,6 +470,8 @@ function ChatWithFileUpload() {
       token: 'user-auth-token',
       id: 'user-id'
     },
+    existingCanvasCount: canvases.length, // Current canvas count for limit enforcement
+    maxCanvasCount: 3, // Optional: Override default limit (defaults to 3)
     canvases: chatState.canvases, // Canvas data from chat state
     dispatch: dispatch // Chat dispatch function
   });
@@ -472,6 +482,9 @@ function ChatWithFileUpload() {
       console.log('File uploaded successfully');
       // Canvas updates will be received automatically via WebSocket
       // and handled by the socket handler which dispatches UPDATE_CANVAS actions
+    } else {
+      console.error('Upload failed:', result.error);
+      // Could be due to canvas limit: "Maximum canvas limit reached (3 canvases per conversation)"
     }
   };
 

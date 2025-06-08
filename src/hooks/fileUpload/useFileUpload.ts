@@ -34,6 +34,10 @@ interface UseFileUploadProps {
   onUploadSuccess?: (data: UploadResponse) => void;
   /** Callback function called after upload error */
   onUploadError?: (error: string) => void;
+  /** Current number of existing canvases in the conversation */
+  existingCanvasCount?: number;
+  /** Maximum number of canvases allowed per conversation (defaults to 3) */
+  maxCanvasCount?: number;
 }
 
 export interface CanvasFullContent {
@@ -63,7 +67,9 @@ export function useFileUpload({
   user, 
   config,
   onUploadSuccess,
-  onUploadError
+  onUploadError,
+  existingCanvasCount = 0,
+  maxCanvasCount = 3
 }: UseFileUploadProps) {
   console.log(`[FILE_UPLOAD] Hook initialized for chatModelId: ${chatModelId}, chatInstanceId: ${chatInstanceId}`);
   
@@ -75,6 +81,27 @@ export function useFileUpload({
 
   const uploadFile = async (file: File): Promise<UploadResponse> => {
     console.log(`[FILE_UPLOAD] uploadFile called for file: ${file.name} (${file.size} bytes)`);
+    console.log(`[FILE_UPLOAD] Current canvas count: ${existingCanvasCount}, Max allowed: ${maxCanvasCount}`);
+    
+    // Check canvas limit before proceeding with upload
+    if (existingCanvasCount >= maxCanvasCount) {
+      const errorMessage = `Maximum canvas limit reached (${maxCanvasCount} canvases per conversation). Please delete existing canvases to upload new ones.`;
+      console.warn(`[FILE_UPLOAD] Canvas limit reached: ${existingCanvasCount}/${maxCanvasCount}`);
+      
+      setError(errorMessage);
+      
+      // Call error callback if provided
+      if (onUploadError) {
+        console.log(`[FILE_UPLOAD] Calling onUploadError callback for canvas limit`);
+        onUploadError(errorMessage);
+      }
+      
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+    
     console.log(`[FILE_UPLOAD] Upload URL: ${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`);
     
     setIsUploading(true);
