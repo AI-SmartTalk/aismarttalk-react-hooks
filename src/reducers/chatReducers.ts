@@ -236,22 +236,21 @@ export const chatReducer = (
         action.payload.userEmail
       );
       
-      // CASE 1: Message from websocket (not locally created)
+      // Handle replacement of locally created messages with server messages
       if (!newMessage.isLocallyCreated) {
-        // Look for locally created messages with same content but with more flexible user matching
+        // Look for locally created messages with same content to replace with server version
         const localIndex = state.messages.findIndex(
           msg => 
             msg.isLocallyCreated && 
             msg.text === newMessage.text &&
-            // Don't compare user IDs for anonymous or matching parent user IDs
+            // Match user IDs flexibly for anonymous users
             (msg.user?.id === 'anonymous' || 
              msg.user?.id === newMessage.user?.id ||
-             // If the server returns our user ID, match with anonymous local messages
              (newMessage.user?.id !== 'ai' && msg.user?.id === 'anonymous'))
         );
         
         if (localIndex >= 0) {
-          // Replace our local message with the server message
+          // Replace local message with server message
           const updatedMessages = [...state.messages];
           updatedMessages[localIndex] = {
             ...newMessage,
@@ -266,87 +265,54 @@ export const chatReducer = (
           return { ...state, messages: updatedMessages };
         }
         
-        // Check if we already have a non-locally-created message with same text/user
-        const duplicateServerMessages = state.messages.filter(
+        // Check for API + WebSocket duplicates: messages from server with same content
+        // This handles the case where API responds immediately and WebSocket sends the same message
+        const existingServerMessages = state.messages.filter(
           msg =>
             !msg.isLocallyCreated &&
             msg.text === newMessage.text &&
             msg.user?.id === newMessage.user?.id &&
-            msg.id !== newMessage.id // Don't compare with self by ID
+            msg.id !== newMessage.id
         );
         
-        if (duplicateServerMessages.length > 0) {
-          // Use timestamp-based approach for server messages too
-          // Only consider it a duplicate if times are within 30 seconds
-          const existingTime = new Date(duplicateServerMessages[0].created_at).getTime();
+        if (existingServerMessages.length > 0) {
+          // Check if this is likely an API + WebSocket duplicate
+          // Allow some time difference for API vs WebSocket timing
+          const mostRecentServerMsg = existingServerMessages[existingServerMessages.length - 1];
+          const existingTime = new Date(mostRecentServerMsg.created_at).getTime();
           const newTime = new Date(newMessage.created_at).getTime();
           const timeDiff = Math.abs(existingTime - newTime);
           
-          // Only consider a duplicate if timestamps are close (within 30 seconds)
-          if (timeDiff < 30000) {
-            return state;
-          }
-        }
-      } 
-      // CASE 2: Locally created message
-      else {
-        // Check if we already have a non-locally-created message with same content
-        const serverMessages = state.messages.filter(
-          msg =>
-            !msg.isLocallyCreated &&
-            msg.text === newMessage.text &&
-            msg.user?.id === newMessage.user?.id
-        );
-        
-        if (serverMessages.length > 0) {
-          // Compare timestamps - only skip if server message is older
-          const serverMessageTime = new Date(serverMessages[0].created_at).getTime();
-          const newMessageTime = new Date(newMessage.created_at).getTime();
-          const timeDiff = Math.abs(serverMessageTime - newMessageTime);
-          
-          // Only skip if server message is older or within 10 seconds
-          if (serverMessageTime < newMessageTime || timeDiff < 10000) {
-            return state;
-          }
-        }
-        
-        // Check if we already have a locally created message with same content
-        const duplicateLocalMessages = state.messages.filter(
-          msg =>
-            msg.isLocallyCreated &&
-            msg.text === newMessage.text &&
-            msg.user?.id === newMessage.user?.id &&
-            msg.id !== newMessage.id // Don't compare with self
-        );
-        
-        if (duplicateLocalMessages.length > 0 && state.messages.length > 0) {
-          // Compare timestamps - only consider a duplicate if within 10 seconds
-          const existingTime = new Date(duplicateLocalMessages[0].created_at).getTime();
-          const newTime = new Date(newMessage.created_at).getTime();
-          const timeDiff = Math.abs(existingTime - newTime);
-          
+          // Block if messages are within 10 seconds (API + WebSocket scenario)
+          // This is more generous than rapid clicks but catches API/WebSocket duplicates
           if (timeDiff < 10000) {
             return state;
           }
         }
-        
-        // Check if we already have a locally created message with same content
-        const hasLocalDuplicate = state.messages.some(
+      } else {
+        // For locally created messages, only prevent rapid double-clicks (within 500ms)
+        const recentLocalDuplicates = state.messages.filter(
           msg =>
             msg.isLocallyCreated &&
             msg.text === newMessage.text &&
             msg.user?.id === newMessage.user?.id &&
-            // Don't skip first message if messages array is empty
-            state.messages.length > 0 
+            msg.id !== newMessage.id
         );
         
-        if (hasLocalDuplicate) {
-          // Skip duplicate local message
-          return state;
+        if (recentLocalDuplicates.length > 0) {
+          const mostRecentDuplicate = recentLocalDuplicates[recentLocalDuplicates.length - 1];
+          const existingTime = new Date(mostRecentDuplicate.created_at).getTime();
+          const newTime = new Date(newMessage.created_at).getTime();
+          const timeDiff = Math.abs(existingTime - newTime);
+          
+          // Only block if within 500ms (rapid double-click protection)
+          if (timeDiff < 500) {
+            return state;
+          }
         }
       }
       
-      // Add the message if it passed all deduplication checks
+      // Add the message
       const updatedMessages = [...state.messages, newMessage];
       debouncedSaveMessagesToLocalStorage(
         updatedMessages,

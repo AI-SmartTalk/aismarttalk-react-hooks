@@ -61,7 +61,8 @@ describe("chatReducer", () => {
       notificationCount: 0,
       suggestions: [],
       title: "💬",
-      isLoading: false
+      isLoading: false,
+      canvases: []
     });
   });
 
@@ -79,9 +80,9 @@ describe("chatReducer", () => {
     expect(newState.messages).toEqual(sampleMessages);
   });
 
-  it("should limit messages to last 30 when handling SET_MESSAGES", () => {
-    // Create 35 messages
-    const manyMessages = Array.from({ length: 35 }, (_, i) => ({
+  it("should limit messages to last 50 when handling SET_MESSAGES", () => {
+    // Create 55 messages
+    const manyMessages = Array.from({ length: 55 }, (_, i) => ({
       id: `msg${i}`,
       text: `Message ${i}`,
       chatInstanceId: "chat123",
@@ -105,10 +106,10 @@ describe("chatReducer", () => {
 
     const newState = chatReducer(initialChatState, action);
     
-    // Should only include the last 30 messages
-    expect(newState.messages.length).toBe(30);
+    // Should only include the last 50 messages
+    expect(newState.messages.length).toBe(50);
     expect(newState.messages[0].id).toBe("msg5"); // The first message should be the 6th (index 5)
-    expect(newState.messages[29].id).toBe("msg34"); // The last message should be the last of 35
+    expect(newState.messages[49].id).toBe("msg54"); // The last message should be the last of 55
   });
 
   it("should handle ADD_MESSAGE action", () => {
@@ -133,30 +134,141 @@ describe("chatReducer", () => {
     expect(newState.messages[1]).toEqual(newMessage);
   });
 
-  it("should not add duplicate messages", () => {
-    const existingState = {
-      ...initialChatState,
-      messages: [sampleMessages[0]]
+  it("should handle different deduplication scenarios correctly", () => {
+    // Create a local message as the base
+    const localMessage = {
+      ...sampleMessages[0],
+      isLocallyCreated: true
     };
 
-    // Create a nearly duplicate message with same text and user
-    const duplicateMessage = {
+    const existingState = {
+      ...initialChatState,
+      messages: [localMessage]
+    };
+
+    // Test 1: Local message rapid duplicate (within 500ms) - should be blocked
+    const rapidLocalDuplicate = {
       ...sampleMessages[0],
-      id: "msg1-duplicate" // Different ID but same content
+      id: "msg1-rapid-local-duplicate",
+      isLocallyCreated: true,
+      created_at: "2023-01-01T12:00:00.100Z" // 100ms after original
+    };
+
+    const action1 = {
+      type: ChatActionTypes.ADD_MESSAGE,
+      payload: {
+        chatInstanceId: "chat123",
+        message: rapidLocalDuplicate
+      }
+    };
+
+    const newState1 = chatReducer(existingState, action1);
+    expect(newState1.messages.length).toBe(1); // Should be blocked
+
+    // Test 2: Create state with server message for server duplicate test
+    const serverMessage = {
+      ...sampleMessages[0],
+      isLocallyCreated: false
+    };
+
+    const stateWithServerMessage = {
+      ...initialChatState,
+      messages: [serverMessage]
+    };
+
+    const serverDuplicate = {
+      ...sampleMessages[0],
+      id: "msg1-server-duplicate",
+      isLocallyCreated: false,
+      created_at: "2023-01-01T12:00:05.000Z" // 5 seconds after original
+    };
+
+    const action2 = {
+      type: ChatActionTypes.ADD_MESSAGE,
+      payload: {
+        chatInstanceId: "chat123",
+        message: serverDuplicate
+      }
+    };
+
+    const newState2 = chatReducer(stateWithServerMessage, action2);
+    expect(newState2.messages.length).toBe(1); // Should be blocked
+
+    // Test 3: Message after longer time - should be allowed
+    const laterMessage = {
+      ...sampleMessages[0],
+      id: "msg1-later-message",
+      isLocallyCreated: false,
+      created_at: "2023-01-01T12:00:15.000Z" // 15 seconds after original
+    };
+
+    const action3 = {
+      type: ChatActionTypes.ADD_MESSAGE,
+      payload: {
+        chatInstanceId: "chat123",
+        message: laterMessage
+      }
+    };
+
+    const newState3 = chatReducer(stateWithServerMessage, action3);
+    expect(newState3.messages.length).toBe(2); // Should be allowed
+  });
+
+  it("should handle API + WebSocket duplicate scenario", () => {
+    // Simulate the API + WebSocket scenario:
+    // 1. User sends message
+    // 2. API responds immediately with the message
+    // 3. WebSocket also broadcasts the same message shortly after
+
+    const apiMessage = {
+      id: "api-msg-1",
+      text: "Hello from API",
+      chatInstanceId: "chat123",
+      isSent: true,
+      created_at: "2023-01-01T12:00:00.000Z",
+      updated_at: "2023-01-01T12:00:00.000Z",
+      isLocallyCreated: false, // From API
+      user: {
+        id: "user1",
+        name: "Test User",
+        email: "test@example.com"
+      }
+    };
+
+    const stateWithApiMessage = {
+      ...initialChatState,
+      messages: [apiMessage]
+    };
+
+    // WebSocket sends the same message 2 seconds later
+    const websocketMessage = {
+      id: "ws-msg-1",
+      text: "Hello from API", // Same text
+      chatInstanceId: "chat123",
+      isSent: true,
+      created_at: "2023-01-01T12:00:02.000Z", // 2 seconds later
+      updated_at: "2023-01-01T12:00:02.000Z",
+      isLocallyCreated: false, // From WebSocket
+      user: {
+        id: "user1", // Same user
+        name: "Test User",
+        email: "test@example.com"
+      }
     };
 
     const action = {
       type: ChatActionTypes.ADD_MESSAGE,
       payload: {
         chatInstanceId: "chat123",
-        message: duplicateMessage
+        message: websocketMessage
       }
     };
 
-    const newState = chatReducer(existingState, action);
-
-    // No message should be added since it's a duplicate
+    const newState = chatReducer(stateWithApiMessage, action);
+    
+    // WebSocket message should be blocked as duplicate (within 10 seconds)
     expect(newState.messages.length).toBe(1);
+    expect(newState.messages[0].id).toBe("api-msg-1"); // Original API message preserved
   });
 
   it("should handle RESET_CHAT action", () => {
