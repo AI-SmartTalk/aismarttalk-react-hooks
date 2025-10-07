@@ -189,7 +189,12 @@ export const useSocketHandler = (
     const socket = socketIOClient(finalWsUrl, {
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
-      timeout: 20000,
+      timeout: 45000,                    // Increased from 20s to 45s to match server
+      transports: ['websocket', 'polling'], // Explicitly prefer websocket first
+      upgrade: true,                     // Allow transport upgrade
+      rememberUpgrade: true,             // Remember successful upgrade
+      reconnectionDelayMax: 5000,        // Max delay between reconnection attempts
+      randomizationFactor: 0.5,          // Randomization factor for reconnection delay
     });
 
     socket.on('connect', () => {
