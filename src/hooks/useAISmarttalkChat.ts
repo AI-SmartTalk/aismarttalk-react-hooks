@@ -97,7 +97,6 @@ export const useAISmarttalkChat = ({
   config,
   debug = false,
 }: UseAISmarttalkProps) => {
-  console.log(`[AISMARTTALK_CHAT] Hook called with:`, { chatModelId, lang, debug, hasConfig: !!config });
   
   const [error, setError] = useState<Error | null>(null);
   const cycleCountRef = useRef<number>(0);
@@ -125,8 +124,6 @@ export const useAISmarttalkChat = ({
   const { user, setUser, updateUserFromLocalStorage, logout, initialUser } =
     useUser(config?.user);
 
-  console.log(`[AISMARTTALK_CHAT] User state:`, { id: user.id, email: user.email, hasToken: !!user.token });
-
   useEffect(() => {
     logger.log("User state changed:", {
       id: user.id,
@@ -141,8 +138,6 @@ export const useAISmarttalkChat = ({
     config,
   });
 
-  console.log(`[AISMARTTALK_CHAT] Chat model:`, chatModel?.id);
-
   const features = useMemo(
     () => ({
       ...defaultFeatures,
@@ -151,12 +146,9 @@ export const useAISmarttalkChat = ({
     [config?.features]
   );
 
-  console.log(`[AISMARTTALK_CHAT] Features:`, features);
-
   // STABLE MEMOIZED PROPS - This is critical to prevent infinite re-renders
   const chatMessagesProps = useMemo(
     () => {
-      console.log(`[AISMARTTALK_CHAT] Creating stable chat messages props`);
       return {
         chatModelId,
         user,
@@ -169,14 +161,6 @@ export const useAISmarttalkChat = ({
     },
     [chatModelId, user.id, user.email, user.token, lang, features.smartadmin, debug, config?.apiUrl, config?.wsUrl, config?.apiToken]
   );
-
-  console.log(`[AISMARTTALK_CHAT] Chat messages props memoized:`, { 
-    chatModelId: chatMessagesProps.chatModelId,
-    userId: chatMessagesProps.user.id,
-    isAdmin: chatMessagesProps.isAdmin,
-    debug: chatMessagesProps.debug,
-    renderCount: renderCountRef.current
-  });
 
   const {
     messages,
@@ -200,16 +184,6 @@ export const useAISmarttalkChat = ({
     uploadFile,
     isUploading,
   } = useChatMessages(chatMessagesProps);
-
-  console.log(`[AISMARTTALK_CHAT] Chat messages hook result:`, {
-    messagesCount: messages.length,
-    chatInstanceId,
-    canvasesCount: canvases?.length || 0,
-    socketStatus,
-    isLoading,
-    isUploading,
-    renderCount: renderCountRef.current
-  });
 
   useEffect(() => {
     if (socketStatus !== lastSocketStatusRef.current) {

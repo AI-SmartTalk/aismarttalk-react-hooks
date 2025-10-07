@@ -63,7 +63,6 @@ export function useFileUpload({
   onUploadSuccess,
   onUploadError
 }: UseFileUploadProps) {
-  console.log(`[FILE_UPLOAD] Hook initialized for chatModelId: ${chatModelId}, chatInstanceId: ${chatInstanceId}`);
   
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,8 +71,6 @@ export function useFileUpload({
   const finalApiToken = config?.apiToken || "";
 
   const uploadFile = async (file: File): Promise<UploadResponse> => {
-    console.log(`[FILE_UPLOAD] uploadFile called for file: ${file.name} (${file.size} bytes)`);
-    console.log(`[FILE_UPLOAD] Upload URL: ${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`);
     
     setIsUploading(true);
     setError(null);
@@ -89,12 +86,8 @@ export function useFileUpload({
       if (user?.token) {
         headers["x-use-chatbot-auth"] = "true";
         headers["Authorization"] = `Bearer ${user.token}`;
-        console.log(`[FILE_UPLOAD] Using user authentication`);
-      } else {
-        console.log(`[FILE_UPLOAD] No user token, using app token only`);
       }
 
-      console.log(`[FILE_UPLOAD] Making POST request to upload file`);
       const response = await fetch(
         `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`,
         {
@@ -104,7 +97,6 @@ export function useFileUpload({
         }
       );
 
-      console.log(`[FILE_UPLOAD] Response status: ${response.status}`);
 
       if (!response.ok) {
         let errorMessage = `Upload failed with status ${response.status}`;
@@ -122,46 +114,35 @@ export function useFileUpload({
             // If we can't get text, stick with the default error message
           }
         }
-        console.error(`[FILE_UPLOAD] Upload failed:`, errorMessage);
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      console.log(`[FILE_UPLOAD] Upload successful:`, data);
       
       // Call success callback if provided
       if (onUploadSuccess) {
-        console.log(`[FILE_UPLOAD] Calling onUploadSuccess callback`);
         onUploadSuccess(data);
-      } else {
-        console.log(`[FILE_UPLOAD] No onUploadSuccess callback provided`);
       }
       
       return data;
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to upload file';
-      console.error(`[FILE_UPLOAD] Upload error:`, errorMessage);
       setError(errorMessage);
       
       // Call error callback if provided
       if (onUploadError) {
-        console.log(`[FILE_UPLOAD] Calling onUploadError callback`);
         onUploadError(errorMessage);
-      } else {
-        console.log(`[FILE_UPLOAD] No onUploadError callback provided`);
-      }
-      
+      } 
+
       return {
         success: false,
         error: errorMessage
       };
     } finally {
-      console.log(`[FILE_UPLOAD] Setting isUploading to false`);
       setIsUploading(false);
     }
   };
 
-  console.log(`[FILE_UPLOAD] Hook render complete. isUploading: ${isUploading}, error: ${error}`);
 
   return {
     // File operations
