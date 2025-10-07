@@ -4,7 +4,6 @@ import {
   useEffect,
   useCallback,
   useRef,
-  useMemo,
 } from "react";
 import socketIOClient from "socket.io-client";
 import { ChatActionTypes } from "../../reducers/chatReducers";
@@ -19,58 +18,6 @@ import {
 } from "../../utils/localStorageHelpers";
 import useCanvasHistory from "../canva/useCanvasHistory";
 import { CanvasLiveUpdate } from "../fileUpload/useFileUpload";
-
-interface SocketLogger {
-  log: (...args: any[]) => void;
-  error: (...args: any[]) => void;
-  warn: (...args: any[]) => void;
-  info: (...args: any[]) => void;
-  debug: (...args: any[]) => void;
-  group: (label: string) => void;
-  groupEnd: () => void;
-}
-
-const createSocketLogger = (enabled: boolean): SocketLogger => {
-  const timestamp = () => new Date().toISOString().split("T")[1].split(".")[0];
-
-  return {
-    log: (...args: any[]) => {
-      if (enabled) {
-        console.log(`[WebSocket][${timestamp()}]`, ...args);
-      }
-    },
-    error: (...args: any[]) => {
-      if (enabled) {
-        console.error(`[WebSocket][${timestamp()}]`, ...args);
-      }
-    },
-    warn: (...args: any[]) => {
-      if (enabled) {
-        console.warn(`[WebSocket][${timestamp()}]`, ...args);
-      }
-    },
-    info: (...args: any[]) => {
-      if (enabled) {
-        console.info(`[WebSocket][${timestamp()}]`, ...args);
-      }
-    },
-    debug: (...args: any[]) => {
-      if (enabled) {
-        console.debug(`[WebSocket][${timestamp()}]`, ...args);
-      }
-    },
-    group: (label: string) => {
-      if (enabled) {
-        console.group(`[WebSocket][${timestamp()}] ${label}`);
-      }
-    },
-    groupEnd: () => {
-      if (enabled) {
-        console.groupEnd();
-      }
-    },
-  };
-};
 
 export const useSocketHandler = (
   chatInstanceId: string,
@@ -87,7 +34,7 @@ export const useSocketHandler = (
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
-  debug: boolean = false
+  debug: boolean = true
 ): any => {
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
@@ -95,8 +42,16 @@ export const useSocketHandler = (
   const reconnectCountRef = useRef<number>(0);
   const socketEventCountsRef = useRef<Record<string, number>>({});
   const connectAttemptsRef = useRef<number>(0);
+  
+  // Store canvasHistory in a ref to avoid triggering reconnections
+  const canvasHistoryRef = useRef(canvasHistory);
+  
+  // Update the ref whenever canvasHistory changes, but don't trigger reconnection
+  useEffect(() => {
+    canvasHistoryRef.current = canvasHistory;
+  }, [canvasHistory]);
 
-  const logger = useMemo(() => createSocketLogger(debug), [debug]);
+  debug = true;
 
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
@@ -106,24 +61,25 @@ export const useSocketHandler = (
 
       socketEventCountsRef.current[eventName] =
         (socketEventCountsRef.current[eventName] || 0) + 1;
-      logger.debug(
-        `Event "${eventName}" triggered (count: ${socketEventCountsRef.current[eventName]})`
+      console.log(
+        `🔔 [WebSocket] Event "${eventName}" triggered (count: ${socketEventCountsRef.current[eventName]})`
       );
     },
-    [debug, logger]
+    [debug]
   );
 
   useEffect(() => {
     if (currentInstanceRef.current !== chatInstanceId) {
-      logger.group("Chat Instance Changed");
-      logger.log(
-        `Previous: ${currentInstanceRef.current}, New: ${chatInstanceId}`
-      );
+      if (debug) {
+        console.log("🔄 [WebSocket] Chat Instance Changed");
+        console.log(`   Previous: ${currentInstanceRef.current}`);
+        console.log(`   New: ${chatInstanceId}`);
+      }
 
       if (socketRef.current) {
-        logger.log(
-          "Cleaning up previous socket connection due to instance change"
-        );
+        if (debug) {
+          console.log("🧹 [WebSocket] Cleaning up previous socket connection due to instance change");
+        }
 
         const lastMsgTime = socketRef.current._lastMessageTime || Date.now();
 
@@ -136,20 +92,22 @@ export const useSocketHandler = (
 
       currentInstanceRef.current = chatInstanceId;
       reconnectCountRef.current = 0;
-      logger.groupEnd();
     }
-  }, [chatInstanceId, logger]);
+  }, [chatInstanceId, debug]);
 
   useEffect(() => {
     if (!chatInstanceId || !chatModelId || !finalApiUrl) {
-      logger.log("Missing required params, not connecting socket", {
-        chatInstanceId: !!chatInstanceId,
-        chatModelId: !!chatModelId,
-        apiUrl: !!finalApiUrl,
-      });
+      if (debug) {
+        console.log("⚠️ [WebSocket] Missing required params, not connecting socket");
+        console.log("   chatInstanceId:", !!chatInstanceId);
+        console.log("   chatModelId:", !!chatModelId);
+        console.log("   apiUrl:", !!finalApiUrl);
+      }
 
       if (socketRef.current) {
-        logger.log("Cleaning up socket due to missing parameters");
+        if (debug) {
+          console.log("🧹 [WebSocket] Cleaning up socket due to missing parameters");
+        }
         socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -164,9 +122,9 @@ export const useSocketHandler = (
     }
 
     if (socketRef.current) {
-      logger.log(
-        "Cleaning up previous socket connection before new connection"
-      );
+      if (debug) {
+        console.log("🧹 [WebSocket] Cleaning up previous socket connection before new connection");
+      }
       socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
@@ -175,25 +133,27 @@ export const useSocketHandler = (
     lastMessageReceivedRef.current = Date.now();
     connectAttemptsRef.current++;
 
-    logger.group("Socket Connection");
-    logger.log(
-      `Attempt #${connectAttemptsRef.current} - Connecting to: ${finalWsUrl}`
-    );
-    logger.log("Connection parameters:", {
-      chatInstanceId,
-      userId: user.id || initialUser.id,
-      reconnect: false,
-      messages: messages.length,
-    });
+    if (debug) {
+      console.log("\n🔌 [WebSocket] Socket Connection");
+      console.log(`   Attempt #${connectAttemptsRef.current}`);
+      console.log(`   URL: ${finalWsUrl}`);
+      console.log("   Connection parameters:", {
+        chatInstanceId,
+        userId: user.id || initialUser.id,
+        reconnect: false,
+        messages: messages.length,
+      });
+    }
 
     const socket = socketIOClient(finalWsUrl, {
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
-      timeout: 20000,
-    });
-
-    socket.on('connect', () => {
-      socket.emit('join', { chatInstanceId });
+      timeout: 45000,                    // Increased from 20s to 45s to match server
+      transports: ['websocket', 'polling'], // Explicitly prefer websocket first
+      upgrade: true,                     // Allow transport upgrade
+      rememberUpgrade: true,             // Remember successful upgrade
+      reconnectionDelayMax: 5000,        // Max delay between reconnection attempts
+      randomizationFactor: 0.5,          // Randomization factor for reconnection delay
     });
 
     socketRef.current = socket;
@@ -204,13 +164,15 @@ export const useSocketHandler = (
 
     socket.on("connect_error", (err) => {
       trackEvent("connect_error");
-      logger.error("Socket connection error:", err.message || err);
-      logger.log("Connection details:", {
-        url: finalWsUrl,
-        chatInstanceId,
-        attempt: connectAttemptsRef.current,
-        connectionAge: Date.now() - (socketRef.current?._connectTime || 0),
-      });
+      if (debug) {
+        console.error("❌ [WebSocket] Socket connection error:", err.message || err);
+        console.log("   Connection details:", {
+          url: finalWsUrl,
+          chatInstanceId,
+          attempt: connectAttemptsRef.current,
+          connectionAge: Date.now() - (socketRef.current?._connectTime || 0),
+        });
+      }
       setSocketStatus("error");
     });
 
@@ -218,48 +180,71 @@ export const useSocketHandler = (
       trackEvent("connect");
       const connectionTime =
         Date.now() - (socketRef.current?._connectTime || Date.now());
-      logger.log(`Socket connected successfully in ${connectionTime}ms`);
+      if (debug) {
+        console.log(`✅ [WebSocket] Socket connected successfully in ${connectionTime}ms`);
+      }
 
-      socket.emit("join", { chatInstanceId });
+      socket.emit("join", { chatInstanceId, chatModelId });
       setSocketStatus("connected");
+    });
+
+    // Listen for server confirmation that join was successful
+    socket.on("joined", (data) => {
+      trackEvent("joined");
+      if (debug) {
+        console.log("🎉 [WebSocket] Successfully Joined Channels");
+        console.log("   Confirmation received from server:", {
+          chatInstanceId: data.chatInstanceId,
+          chatModelId: data.chatModelId,
+          socketId: data.socketId,
+          timestamp: data.timestamp
+        });
+        console.log("   ✓ User is now connected and ready to receive messages");
+      }
     });
 
     socket.on("disconnect", (reason) => {
       trackEvent("disconnect");
       reconnectCountRef.current++;
 
-      logger.group("Socket Disconnected");
-      logger.log(`Reason: ${reason}`);
-      logger.log(`Disconnect #${reconnectCountRef.current}`);
-      logger.log(
-        "Socket lifetime:",
-        `${(Date.now() - socketRef.current?._connectTime) / 1000}s`
-      );
-      logger.log("Connection info:", {
-        messagesReceived: socketEventCountsRef.current["chat-message"] || 0,
-        lastMessageTime: lastMessageReceivedRef.current
-          ? new Date(lastMessageReceivedRef.current).toISOString()
-          : "none",
-        currentMessages: messages.length,
-      });
-      logger.groupEnd();
+      if (debug) {
+        console.log("\n🔌❌ [WebSocket] Socket Disconnected");
+        console.log(`   Reason: ${reason}`);
+        console.log(`   Disconnect #${reconnectCountRef.current}`);
+        console.log(
+          `   Socket lifetime: ${(Date.now() - socketRef.current?._connectTime) / 1000}s`
+        );
+        console.log("   Connection info:", {
+          messagesReceived: socketEventCountsRef.current["chat-message"] || 0,
+          lastMessageTime: lastMessageReceivedRef.current
+            ? new Date(lastMessageReceivedRef.current).toISOString()
+            : "none",
+          currentMessages: messages.length,
+        });
+      }
 
       setSocketStatus("disconnected");
     });
 
     socket.io.on("reconnect_attempt", (attemptNumber) => {
-      logger.log(`Reconnection attempt #${attemptNumber}`);
+      if (debug) {
+        console.log(`🔄 [WebSocket] Reconnection attempt #${attemptNumber}`);
+      }
       setSocketStatus("reconnecting");
     });
 
     socket.io.on("reconnect", () => {
-      logger.log("Socket reconnected successfully");
-      socket.emit("join", { chatInstanceId });
+      if (debug) {
+        console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
+      }
+      socket.emit("join", { chatInstanceId, chatModelId });
       setSocketStatus("connected");
     });
 
     socket.io.on("reconnect_failed", () => {
-      logger.error("Socket reconnection failed after max attempts");
+      if (debug) {
+        console.error("❌ [WebSocket] Socket reconnection failed after max attempts");
+      }
       setSocketStatus("error");
     });
 
@@ -267,12 +252,14 @@ export const useSocketHandler = (
       trackEvent("chat-message");
 
       if (data.chatInstanceId === chatInstanceId) {
-        logger.group("Message Received");
-        logger.log("Message:", {
-          id: data.message?.id,
-          text: data.message?.text?.substring(0, 30) + "...",
-          fromUser: data.message?.user?.id === user.id,
-        });
+        if (debug) {
+          console.log("\n💬 [WebSocket] Message Received");
+          console.log("   Message:", {
+            id: data.message?.id,
+            text: data.message?.text?.substring(0, 30) + "...",
+            fromUser: data.message?.user?.id === user.id,
+          });
+        }
 
         const now = Date.now();
         lastMessageReceivedRef.current = now;
@@ -290,10 +277,12 @@ export const useSocketHandler = (
           (data.message.user?.id === "anonymous" ||
             data.message.user?.email === "anonymous@example.com");
 
-        logger.log(
-          "Processing message with isSent:",
-          isCurrentUser || isAnonymousUser
-        );
+        if (debug) {
+          console.log(
+            "   Processing message with isSent:",
+            isCurrentUser || isAnonymousUser
+          );
+        }
 
         // Let the reducer handle the message combining logic
         dispatch({
@@ -309,13 +298,16 @@ export const useSocketHandler = (
           },
         });
 
-        logger.log("Message processing complete");
-        logger.groupEnd();
+        if (debug) {
+          console.log("   ✓ Message processing complete");
+        }
       } else {
-        logger.log("Ignoring message for different chat instance", {
-          messageFor: data.chatInstanceId,
-          current: chatInstanceId,
-        });
+        if (debug) {
+          console.log("⏭️ [WebSocket] Ignoring message for different chat instance", {
+            messageFor: data.chatInstanceId,
+            current: chatInstanceId,
+          });
+        }
       }
     });
 
@@ -326,16 +318,22 @@ export const useSocketHandler = (
 
     socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
       trackEvent("canvas-live-update");
-      logger.group("Canvas Live Update");
-      logger.log("Canvas ID:", data.canvasId);
-      logger.log("Updates count:", data.updates?.length || 0);
+      if (debug) {
+        console.log("\n🎨 [WebSocket] Canvas Live Update");
+        console.log("   Canvas ID:", data.canvasId);
+        console.log("   Updates count:", data.updates?.length || 0);
+      }
       
       // Apply updates through useCanvasHistory
       try {
-        canvasHistory.applyCanvasLiveUpdate(data);
-        logger.log("Canvas update applied successfully via useCanvasHistory");
+        canvasHistoryRef.current.applyCanvasLiveUpdate(data);
+        if (debug) {
+          console.log("   ✓ Canvas update applied successfully via useCanvasHistory");
+        }
       } catch (error) {
-        logger.error("Error applying canvas update via useCanvasHistory:", error);
+        if (debug) {
+          console.error("   ❌ Error applying canvas update via useCanvasHistory:", error);
+        }
       }
       
       // Also dispatch to reducer for backward compatibility
@@ -343,16 +341,16 @@ export const useSocketHandler = (
         type: ChatActionTypes.CANVAS_LIVE_UPDATE,
         payload: { canvasUpdate: data },
       });
-      
-      logger.groupEnd();
     });
 
     socket.on("update-suggestions", (data) => {
       trackEvent("update-suggestions");
       if (data.chatInstanceId === chatInstanceId) {
-        logger.log("Received suggestions update", {
-          count: data.suggestions?.length || 0,
-        });
+        if (debug) {
+          console.log("💡 [WebSocket] Received suggestions update", {
+            count: data.suggestions?.length || 0,
+          });
+        }
         saveSuggestions(chatInstanceId, data.suggestions);
         dispatch({
           type: ChatActionTypes.UPDATE_SUGGESTIONS,
@@ -367,9 +365,11 @@ export const useSocketHandler = (
         data.chatInstanceId === chatInstanceId &&
         data.conversationStarters?.length
       ) {
-        logger.log("Received conversation starters", {
-          count: data.conversationStarters.length,
-        });
+        if (debug) {
+          console.log("🚀 [WebSocket] Received conversation starters", {
+            count: data.conversationStarters.length,
+          });
+        }
         setConversationStarters(data.conversationStarters);
         saveConversationStarters(chatModelId, data.conversationStarters);
       }
@@ -379,7 +379,9 @@ export const useSocketHandler = (
       "otp-login",
       (data: { chatInstanceId: string; user: User; token: string }) => {
         trackEvent("otp-login");
-        logger.group("OTP Login");
+        if (debug) {
+          console.log("\n🔐 [WebSocket] OTP Login");
+        }
 
         if (data.user && data.token) {
           const finalUser: User = {
@@ -388,53 +390,63 @@ export const useSocketHandler = (
             id: data.user.id || `user-${data.user.email.split("@")[0]}`,
           };
 
-          logger.log("Received user token", {
-            email: finalUser.email,
-            id: finalUser.id,
-          });
+          if (debug) {
+            console.log("   Received user token", {
+              email: finalUser.email,
+              id: finalUser.id,
+            });
+          }
 
           setUser(finalUser);
 
           try {
             localStorage.setItem("user", JSON.stringify(finalUser));
-            logger.log("User saved to localStorage");
+            if (debug) {
+              console.log("   ✓ User saved to localStorage");
+            }
           } catch (err) {
-            logger.error("Failed to store user in localStorage:", err);
+            if (debug) {
+              console.error("   ❌ Failed to store user in localStorage:", err);
+            }
           }
 
-          logger.log(
-            "Disconnecting socket to reconnect with new user credentials"
-          );
+          if (debug) {
+            console.log("   🔌 Disconnecting socket to reconnect with new user credentials");
+          }
           socket.disconnect();
         } else {
-          logger.error(
-            "Invalid user data from otp-login, missing token or user data"
-          );
+          if (debug) {
+            console.error("   ❌ Invalid user data from otp-login, missing token or user data");
+          }
           setUser({ ...initialUser });
           localStorage.removeItem("user");
         }
-
-        logger.groupEnd();
       }
     );
 
     socket.on("tool-run-start", (data: Tool) => {
       trackEvent("tool-run-start");
-      logger.log("Tool started:", data.name);
+      if (debug) {
+        console.log("🔧 [WebSocket] Tool started:", data.name);
+      }
       setActiveTool(data);
     });
 
     // Legacy canvas events for backward compatibility
     socket.on("canvas:update", (canvas: any) => {
       trackEvent("canvas:update");
-      logger.log("Legacy canvas:update event received");
+      if (debug) {
+        console.log("🎨 [WebSocket] Legacy canvas:update event received");
+      }
       try {
         // Convert legacy canvas format to new format if needed
-        if (canvasHistory.updateCanvas && typeof canvasHistory.updateCanvas === 'function') {
-          canvasHistory.updateCanvas(canvas);
+        if (canvasHistoryRef.current.updateCanvas && typeof canvasHistoryRef.current.updateCanvas === 'function') {
+          canvasHistoryRef.current.updateCanvas(canvas);
         }
       } catch (error) {
-        logger.error("Error handling legacy canvas:update:", error);
+        if (debug) {
+          console.error("   ❌ Error handling legacy canvas:update:", error);
+        }
       }
     });
 
@@ -450,41 +462,47 @@ export const useSocketHandler = (
         lines: string[];
       }) => {
         trackEvent("canvas:line-update");
-        logger.log("Legacy canvas:line-update event received");
+        if (debug) {
+          console.log("🎨 [WebSocket] Legacy canvas:line-update event received");
+        }
         try {
-          if (canvasHistory.updateLineRange && typeof canvasHistory.updateLineRange === 'function') {
-            canvasHistory.updateLineRange(start, end, lines);
+          if (canvasHistoryRef.current.updateLineRange && typeof canvasHistoryRef.current.updateLineRange === 'function') {
+            canvasHistoryRef.current.updateLineRange(start, end, lines);
           }
         } catch (error) {
-          logger.error("Error handling legacy canvas:line-update:", error);
+          if (debug) {
+            console.error("   ❌ Error handling legacy canvas:line-update:", error);
+          }
         }
       }
     );
 
     socket.onAny((event) => {
       if (debug) {
-        logger.debug(`Socket event: ${event}`);
+        console.log(`🔔 [WebSocket] Socket event: ${event}`);
       }
     });
 
-    logger.log("Socket setup complete, waiting for connection events");
-    logger.groupEnd();
+    if (debug) {
+      console.log("✅ [WebSocket] Socket setup complete, waiting for connection events\n");
+    }
 
     return () => {
       if (socket) {
-        logger.log("Cleaning up socket on unmount/effect cleanup");
-        logger.log(
-          "Socket lifetime:",
-          `${(Date.now() - socketRef.current?._connectTime) / 1000}s`
-        );
-        logger.log("Events received:", socketEventCountsRef.current);
+        if (debug) {
+          console.log("\n🧹 [WebSocket] Cleaning up socket on unmount/effect cleanup");
+          console.log(
+            `   Socket lifetime: ${(Date.now() - socketRef.current?._connectTime) / 1000}s`
+          );
+          console.log("   Events received:", socketEventCountsRef.current);
+        }
 
         socket.removeAllListeners();
         socket.disconnect();
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl, canvasHistory]);
+  }, [chatInstanceId, chatModelId, finalWsUrl]);
 
   return socketRef;
 };

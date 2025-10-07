@@ -74,28 +74,11 @@ export const useChatMessages = ({
   lang = "en",
   isAdmin = false,
   debug = false,
-}: UseChatMessagesOptions) => {
-  console.log(`[CHAT_MESSAGE] useChatMessages hook called with:`, {
-    chatModelId,
-    userId: user.id,
-    userEmail: user.email,
-    lang,
-    isAdmin,
-    debug,
-    hasConfig: !!config
-  });
-
+}: UseChatMessagesOptions) => { 
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
   const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? "-smartadmin" : "-standard"}]`;
-
-  console.log(`[CHAT_MESSAGE] Configuration:`, {
-    finalApiUrl,
-    hasApiToken: !!finalApiToken,
-    finalWsUrl,
-    storageKey
-  });
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
   const { chatInstanceId, setChatInstanceId, getNewInstance } = useChatInstance(
@@ -127,17 +110,14 @@ export const useChatMessages = ({
   }, [state.messages.length]);
 
   useEffect(() => {
-    console.log(`[CHAT_MESSAGE] chatInstanceId change effect triggered. Previous: ${previousChatInstanceRef.current}, New: ${chatInstanceId}`);
     
     if (chatInstanceId && chatInstanceId !== previousChatInstanceRef.current) {
       // First clear the current state and note the change
       const prevInstance = previousChatInstanceRef.current;
       previousChatInstanceRef.current = chatInstanceId;
-      console.log(`[CHAT_MESSAGE] Updated previousChatInstanceRef to: ${chatInstanceId}`);
 
       // Reset message state when switching to a different conversation
       if (prevInstance) {
-        console.log(`[CHAT_MESSAGE] Conversation switch detected (${prevInstance} -> ${chatInstanceId}), resetting messages`);
         // This is a conversation switch - reset messages
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
@@ -152,11 +132,9 @@ export const useChatMessages = ({
         return;
       }
       
-      console.log(`[CHAT_MESSAGE] Initial load detected for chatInstanceId: ${chatInstanceId}`);
       // Only for initial load or non-conversation switching cases:
       // Try to load from cache if available
       if (cachedMessagesRef.current[chatInstanceId]?.length > 0) {
-        console.log(`[CHAT_MESSAGE] Loading ${cachedMessagesRef.current[chatInstanceId].length} messages from cache`);
         dispatch({
           type: ChatActionTypes.SET_MESSAGES,
           payload: { 
@@ -166,9 +144,7 @@ export const useChatMessages = ({
             userEmail: user?.email
           },
         });
-      } else {
-        console.log(`[CHAT_MESSAGE] No cached messages found for chatInstanceId: ${chatInstanceId}`);
-      }
+      } 
     }
   }, [chatInstanceId, dispatch, user?.id, user?.email]);
 
@@ -272,20 +248,16 @@ export const useChatMessages = ({
   };
 
   // Canvas management with useCanvasHistory
-  console.log(`[CHAT_MESSAGE] Initializing canvas history with chatModelId: ${chatModelId}, chatInstanceId: ${chatInstanceId}`);
   const canvasHistory = useCanvasHistory(chatModelId, chatInstanceId);
 
   // Fetch canvases from API
   const fetchCanvases = useCallback(async (): Promise<void> => {
-    console.log(`[CHAT_MESSAGE] fetchCanvases called. chatInstanceId: ${chatInstanceId}, isFetching: ${isFetchingCanvasesRef.current}`);
     
     if (!chatInstanceId || isFetchingCanvasesRef.current) {
-      console.log(`[CHAT_MESSAGE] fetchCanvases early return - no chatInstanceId or already fetching`);
       return;
     }
 
     isFetchingCanvasesRef.current = true;
-    console.log(`[CHAT_MESSAGE] Setting isFetchingCanvasesRef to true`);
 
     try {
       const headers: Record<string, string> = {
@@ -301,7 +273,6 @@ export const useChatMessages = ({
         headers.Authorization = `Bearer ${user.token}`;
       }
 
-      console.log(`[CHAT_MESSAGE] Making GET request to fetch canvases for chatInstance: ${chatInstanceId}`);
       const response = await fetch(
         `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`,
         {
@@ -325,33 +296,25 @@ export const useChatMessages = ({
             // Keep default error message
           }
         }
-        console.error(`[CHAT_MESSAGE] fetchCanvases failed:`, errorMessage);
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      console.log(`[CHAT_MESSAGE] fetchCanvases success - received ${data?.length || 0} canvases`);
       
       // Only update if we got valid data
       if (data && Array.isArray(data)) {
-        console.log(`[CHAT_MESSAGE] Calling canvasHistory.setCanvasesFromAPI with ${data.length} canvases`);
         canvasHistory.setCanvasesFromAPI(data);
         
-        console.log(`[CHAT_MESSAGE] Dispatching SET_CANVASES action`);
         dispatch({
           type: ChatActionTypes.SET_CANVASES,
           payload: { canvases: data },
         });
-      } else {
-        console.warn(`[CHAT_MESSAGE] fetchCanvases - invalid data received:`, data);
-      }
+      } 
       
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to fetch canvases';
-      console.error("[CHAT_MESSAGE] Error fetching canvases:", errorMessage);
     } finally {
       isFetchingCanvasesRef.current = false;
-      console.log(`[CHAT_MESSAGE] Setting isFetchingCanvasesRef to false`);
     }
   }, [chatInstanceId, finalApiUrl, finalApiToken, user?.token, chatModelId]);
 
@@ -359,16 +322,10 @@ export const useChatMessages = ({
 
   // Initialize canvas fetching - only fetch once per chat instance
   useEffect(() => {
-    console.log(`[CHAT_MESSAGE] Canvas fetching effect triggered. chatInstanceId: ${chatInstanceId}`);
-    console.log(`[CHAT_MESSAGE] fetchedCanvasesRef has: [${Array.from(fetchedCanvasesRef.current).join(', ')}]`);
-    console.log(`[CHAT_MESSAGE] isFetchingCanvasesRef.current: ${isFetchingCanvasesRef.current}`);
     
     if (chatInstanceId && !fetchedCanvasesRef.current.has(chatInstanceId) && !isFetchingCanvasesRef.current) {
-      console.log(`[CHAT_MESSAGE] Adding ${chatInstanceId} to fetchedCanvasesRef and calling fetchCanvases`);
       fetchedCanvasesRef.current.add(chatInstanceId);
       fetchCanvases();
-    } else {
-      console.log(`[CHAT_MESSAGE] Skipping canvas fetch - already fetched or currently fetching`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatInstanceId]); // Only depend on chatInstanceId - fetchCanvases is stable
@@ -521,7 +478,6 @@ export const useChatMessages = ({
           }
           hasInitializedRef.current = true;
         } catch (error) {
-          console.error("Error fetching conversation:", error);
           dispatch({
             type: ChatActionTypes.SET_MESSAGES,
             payload: { 
@@ -533,7 +489,6 @@ export const useChatMessages = ({
           hasInitializedRef.current = true;
         }
       } catch (error) {
-        console.error("Error selecting conversation:", error);
         setError(
           error instanceof Error
             ? error.message
@@ -827,27 +782,17 @@ export const useChatMessages = ({
     chatInstanceId, 
     user, 
     config,
-    onUploadSuccess: (data) => {
-      console.log(`[CHAT_MESSAGE] File upload success callback triggered`, data);
-      
+    onUploadSuccess: (data) => {      
       if (data.success !== false) {
-        console.log(`[CHAT_MESSAGE] Upload successful, resetting fetchedCanvasesRef for ${chatInstanceId}`);
         // Reset the fetched flag so we can fetch updated canvases
         fetchedCanvasesRef.current.delete(chatInstanceId);
-        console.log(`[CHAT_MESSAGE] fetchedCanvasesRef now has: [${Array.from(fetchedCanvasesRef.current).join(', ')}]`);
         
         // Use a small delay to prevent immediate re-fetch conflicts
         setTimeout(() => {
-          console.log(`[CHAT_MESSAGE] Delayed canvas fetch after upload. isFetching: ${isFetchingCanvasesRef.current}`);
           if (!isFetchingCanvasesRef.current) {
-            console.log(`[CHAT_MESSAGE] Calling fetchCanvases after upload success`);
             fetchCanvases();
-          } else {
-            console.log(`[CHAT_MESSAGE] Skipping fetchCanvases - already in progress`);
-          }
+          } 
         }, 100);
-      } else {
-        console.log(`[CHAT_MESSAGE] Upload was not successful, not triggering canvas fetch`);
       }
     },
     onUploadError: (error) => {

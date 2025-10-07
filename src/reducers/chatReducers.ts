@@ -114,18 +114,24 @@ export const chatReducer = (
         return state;
       }
 
-      if (
-        state.messages.length > 0 &&
-        state.messages[0]?.chatInstanceId !== action.payload.chatInstanceId
-      ) {
+      // Check if we're switching to a different chat instance
+      const currentChatInstanceId = state.messages[0]?.chatInstanceId;
+      const newChatInstanceId = action.payload.chatInstanceId;
+      const isSwitchingConversation = 
+        currentChatInstanceId && 
+        currentChatInstanceId !== newChatInstanceId;
+
+      if (isSwitchingConversation) {
+        // When switching conversations, always replace messages completely
         if (action.payload.messages.length > 0) {
           debouncedSaveMessagesToLocalStorage(
             action.payload.messages,
-            action.payload.chatInstanceId || ""
+            newChatInstanceId || ""
           );
           return { ...state, messages: action.payload.messages.slice(-50) };
         }
 
+        // If no messages for new conversation, clear state
         return { ...state, messages: [] };
       }
 
@@ -229,6 +235,14 @@ export const chatReducer = (
     case ChatActionTypes.ADD_MESSAGE:
       const newMessage = action.payload.message;
       if (!newMessage) return state;
+
+      // First check: if a message with the same ID already exists, skip it
+      // This prevents API + WebSocket duplicates when both mechanisms send the same message
+      const existingMessageWithSameId = state.messages.find(msg => msg.id === newMessage.id);
+      if (existingMessageWithSameId) {
+        // Message already exists, don't add it again
+        return state;
+      }
 
       newMessage.isSent = shouldMessageBeSent(
         newMessage,
