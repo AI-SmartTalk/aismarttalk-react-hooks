@@ -410,7 +410,6 @@ export const chatReducer = (
     case ChatActionTypes.CANVAS_LIVE_UPDATE:
       // Canvas live updates are now handled by useCanvasHistory
       // This action is kept for backward compatibility but doesn't modify state
-      console.log("Canvas live update received (handled by useCanvasHistory):", action.payload.canvasUpdate);
       return state;
 
     default:

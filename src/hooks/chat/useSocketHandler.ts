@@ -34,7 +34,7 @@ export const useSocketHandler = (
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
-  debug: boolean = true
+  debug: boolean = false
 ): any => {
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
@@ -51,8 +51,6 @@ export const useSocketHandler = (
     canvasHistoryRef.current = canvasHistory;
   }, [canvasHistory]);
 
-  debug = true;
-
   const stableTypingUpdate = useCallback(debouncedTypingUsersUpdate, []);
 
   const trackEvent = useCallback(
@@ -61,9 +59,6 @@ export const useSocketHandler = (
 
       socketEventCountsRef.current[eventName] =
         (socketEventCountsRef.current[eventName] || 0) + 1;
-      console.log(
-        `🔔 [WebSocket] Event "${eventName}" triggered (count: ${socketEventCountsRef.current[eventName]})`
-      );
     },
     [debug]
   );
