@@ -14,7 +14,6 @@ import {
 import { defaultApiUrl, defaultWsUrl } from "../types/config";
 import { Tool } from "../types/tools";
 import { TypingUser } from "../types/typingUsers";
-import { User } from "../types/users";
 import {
   loadConversationHistory,
   saveConversationHistory,

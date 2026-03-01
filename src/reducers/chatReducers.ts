@@ -236,11 +236,24 @@ export const chatReducer = (
       const newMessage = action.payload.message;
       if (!newMessage) return state;
 
-      // First check: if a message with the same ID already exists, skip it
-      // This prevents API + WebSocket duplicates when both mechanisms send the same message
+      // First check: if a message with the same ID already exists
+      // This prevents API + WebSocket duplicates and handles edits
       const existingMessageWithSameId = state.messages.find(msg => msg.id === newMessage.id);
       if (existingMessageWithSameId) {
-        // Message already exists, don't add it again
+        if (existingMessageWithSameId.text !== newMessage.text) {
+          // Text changed — this is an edit, update in place
+          const updatedMessages = state.messages.map(msg =>
+            msg.id === newMessage.id
+              ? { ...msg, text: newMessage.text }
+              : msg
+          );
+          debouncedSaveMessagesToLocalStorage(
+            updatedMessages,
+            action.payload.chatInstanceId || ""
+          );
+          return { ...state, messages: updatedMessages };
+        }
+        // Same ID, same text — skip duplicate
         return state;
       }
 
