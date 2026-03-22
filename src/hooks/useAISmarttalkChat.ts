@@ -183,6 +183,7 @@ export const useAISmarttalkChat = ({
     createNewChat,
     uploadFile,
     isUploading,
+    addMessage,
   } = useChatMessages(chatMessagesProps);
 
   useEffect(() => {
@@ -362,6 +363,7 @@ export const useAISmarttalkChat = ({
 
     uploadFile,
     isUploading,
+    addMessage,
   };
 };
 
