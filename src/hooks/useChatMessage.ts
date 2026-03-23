@@ -1112,15 +1112,16 @@ export const useChatMessages = ({
     [chatInstanceId, chatModelId, dispatch, conversations, state.messages]
   );
 
-  const createNewChat = useCallback(async () => {
+  const createNewChat = useCallback(async (overrideUser?: { id?: string; email?: string; name?: string; image?: string; token?: string }) => {
     try {
-      const newInstanceId = await getNewInstance();
+      const effectiveUser = overrideUser || user;
+      const newInstanceId = await getNewInstance(overrideUser);
       if (!newInstanceId) return null;
 
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
-        payload: { 
-          chatInstanceId: newInstanceId, 
+        payload: {
+          chatInstanceId: newInstanceId,
           messages: [],
           resetMessages: true
         },
@@ -1136,10 +1137,10 @@ export const useChatMessages = ({
         defaultTitle,
         [], // No need for initial system message
         {
-          id: user.id || 'anonymous',
-          email: user.email || '',
-          name: user.name || 'User',
-          image: user.image || ''
+          id: effectiveUser.id || 'anonymous',
+          email: effectiveUser.email || '',
+          name: effectiveUser.name || 'User',
+          image: effectiveUser.image || ''
         }
       );
 
@@ -1150,10 +1151,10 @@ export const useChatMessages = ({
         messages: [], // Start with an empty array of messages
         lastUpdated: new Date().toISOString(),
         user: {
-          id: user.id || 'anonymous',
-          email: user.email || '',
-          name: user.name || 'User',
-          image: user.image || ''
+          id: effectiveUser.id || 'anonymous',
+          email: effectiveUser.email || '',
+          name: effectiveUser.name || 'User',
+          image: effectiveUser.image || ''
         }
       };
 
@@ -1171,12 +1172,12 @@ export const useChatMessages = ({
       return null;
     }
   }, [
-    chatModelId, 
-    dispatch, 
-    storageKey, 
-    chatInstanceId, 
-    getNewInstance, 
-    setChatTitle, 
+    chatModelId,
+    dispatch,
+    storageKey,
+    chatInstanceId,
+    getNewInstance,
+    setChatTitle,
     clearCachedMessages,
     user.id,
     user.email,

@@ -285,7 +285,7 @@ export const useAISmarttalkChat = ({
       logout();
 
       logger.log("Creating new conversation for anonymous user");
-      const newChatId = await createNewChat();
+      const newChatId = await createNewChat(initialUser);
       logger.log("Created new chat ID:", newChatId);
 
       if (newChatId) {

@@ -23,6 +23,7 @@ export const useMessageHandler = (
       id: message.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       text: message.text,
       isSent: false,
+      isLocallyCreated: true,
       chatInstanceId,
       created_at: message.created_at || new Date().toISOString(),
       updated_at: message.updated_at || new Date().toISOString(),

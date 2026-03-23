@@ -77,35 +77,37 @@ export const useChatInstance = ({
     return new Promise(resolve => setTimeout(resolve, 100));
   }, [storageKey]);
 
-  const initializeChatInstance = async () => {   
+  const initializeChatInstance = async (overrideUser?: { email?: string; name?: string; token?: string }) => {
     try {
       if (isChangingRef.current) return null;
-  
+
       isChangingRef.current = true;
       await cleanup();
-      
+
+      const effectiveUser = overrideUser || user;
+
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
       };
 
-      if (user?.token) {
+      if (effectiveUser?.token) {
         headers["x-use-chatbot-auth"] = "true";
-        headers["Authorization"] = `Bearer ${user.token}`;
+        headers["Authorization"] = `Bearer ${effectiveUser.token}`;
       }
 
-      const url = isAdmin ? 
-        `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` : 
-        `${finalApiUrl}/api/chat/createInstance`;    
+      const url = isAdmin ?
+        `${finalApiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` :
+        `${finalApiUrl}/api/chat/createInstance`;
 
       const response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({ 
-          chatModelId, 
+        body: JSON.stringify({
+          chatModelId,
           lang,
-          userEmail: user?.email || 'anonymous@example.com',
-          userName: user?.name || 'Anonymous'
+          userEmail: effectiveUser?.email || 'anonymous@example.com',
+          userName: effectiveUser?.name || 'Anonymous'
         }),
       });
 
