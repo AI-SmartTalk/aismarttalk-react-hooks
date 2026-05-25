@@ -33,6 +33,10 @@ export const useMessageHandler = (
         name: user.name ?? '',
         image: user.image ?? '',
       },
+      // Preserve any caller-provided metadata (imageMetadata, audioMetadata,
+      // platformMessageId). Previously dropped — that's what kept the optimistic
+      // bubble from showing image thumbnails.
+      ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
     };
     
     newMessage.isSent = shouldMessageBeSent(newMessage, user.id, user.email);

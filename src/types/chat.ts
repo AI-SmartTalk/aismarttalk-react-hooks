@@ -13,6 +13,9 @@ export interface FrontChatMessage {
     image?: string;
     role?: string;
   };
+  /** Server-persisted attachments — mirrors Message.metadata on the backend.
+   *  Used for: imageMetadata, audioMetadata, platformMessageId. */
+  metadata?: Record<string, any>;
 }
 
 export interface CTADTO {

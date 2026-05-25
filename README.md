@@ -304,6 +304,13 @@ This deduplication system works behind the scenes without requiring any special 
 
 ## 📝 Changelog
 
+### 1.5.16 ✨ Message Metadata Propagation
+- 🖼️ **Multimodal-ready message bubbles**
+  - `FrontChatMessage` now exposes an optional `metadata?: Record<string, any>` field, mirroring the server-side `Message.metadata` shape used for `imageMetadata`, `audioMetadata`, and platform message ids
+  - `useMessageHandler.addMessage` now forwards a caller-provided `metadata` field onto the locally created message instead of silently dropping it
+  - Fixes a class of bugs where optimistic message bubbles couldn't render image / audio attachments until the server-synced replacement arrived
+- 🔄 **No breaking changes** — `metadata` is opt-in. Existing integrations continue to work unchanged.
+
 ### 1.5.0 ✨ Enhanced Error Handling & Message Stability
 - 🛡️ **Comprehensive Error Handling System**
   - Added structured error information with types (`auth`, `permission`, `rate_limit`, etc.)
