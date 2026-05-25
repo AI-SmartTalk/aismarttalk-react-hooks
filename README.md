@@ -304,7 +304,7 @@ This deduplication system works behind the scenes without requiring any special 
 
 ## 📝 Changelog
 
-### 1.5.16 ✨ Message Metadata Propagation
+### 1.5.17 ✨ Message Metadata Propagation
 - 🖼️ **Multimodal-ready message bubbles**
   - `FrontChatMessage` now exposes an optional `metadata?: Record<string, any>` field, mirroring the server-side `Message.metadata` shape used for `imageMetadata`, `audioMetadata`, and platform message ids
   - `useMessageHandler.addMessage` now forwards a caller-provided `metadata` field onto the locally created message instead of silently dropping it
