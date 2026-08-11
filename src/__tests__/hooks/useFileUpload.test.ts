@@ -85,6 +85,32 @@ describe('useFileUpload', () => {
     expect(response.error).toBe('File exceeds the allowed size');
   });
 
+  it('verse une pièce jointe dans le corpus, en nommant la destination', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ documents: 3 }, 202));
+
+    const { result } = renderHook(() => useFileUpload(props('user-token')));
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.promoteToKnowledge('canvas-1', 'personal');
+    });
+
+    expect(outcome).toEqual({ success: true });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://core.example.com/api/v1/me/conversations/ci_1/attachments/canvas-1/promote');
+    expect(JSON.parse(init.body)).toEqual({ visibility: 'personal' });
+  });
+
+  it('refuse le versement à un visiteur anonyme sans appeler le serveur', async () => {
+    const { result } = renderHook(() => useFileUpload(props()));
+    let outcome: any;
+    await act(async () => {
+      outcome = await result.current.promoteToKnowledge('canvas-1');
+    });
+
+    expect(outcome.success).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rend le message du serveur, pas seulement le statut', async () => {
     const onUploadError = jest.fn();
     fetchMock.mockResolvedValue(jsonResponse({ error: 'Unsupported file type: .zip' }, 415));

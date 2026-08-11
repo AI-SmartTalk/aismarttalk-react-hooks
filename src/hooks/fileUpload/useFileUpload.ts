@@ -169,9 +169,47 @@ export function useFileUpload({
   };
 
 
+  /**
+   * Verse une pièce jointe dans le corpus permanent de l'assistant.
+   *
+   * Exige une personne identifiée : la destination dépend de ses droits, et un
+   * visiteur anonyme n'en a aucun.
+   */
+  const promoteToKnowledge = async (
+    canvasId: string,
+    visibility: 'shared' | 'personal' = 'shared'
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!user?.token) {
+      return { success: false, error: 'Sign in to add this file to the knowledge base' };
+    }
+
+    try {
+      const response = await fetch(
+        `${v1Url}/${encodeURIComponent(canvasId)}/promote`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+            'x-chat-model-id': chatModelId,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ visibility }),
+        }
+      );
+
+      if (!response.ok) {
+        return { success: false, error: await readError(response) };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to add this file to the knowledge base' };
+    }
+  };
+
   return {
     // File operations
     uploadFile,
+    promoteToKnowledge,
 
     // State
     isUploading,

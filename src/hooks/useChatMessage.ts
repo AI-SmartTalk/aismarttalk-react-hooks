@@ -776,7 +776,7 @@ export const useChatMessages = ({
     debug
   );
 
-  const { uploadFile, isUploading } = useFileUpload({
+  const { uploadFile, promoteToKnowledge, isUploading } = useFileUpload({
     chatModelId, 
     chatInstanceId, 
     user, 
@@ -1340,6 +1340,7 @@ export const useChatMessages = ({
     createNewChat,
     resetChat,
     uploadFile,
+    promoteToKnowledge,
     isUploading,
   };
 };

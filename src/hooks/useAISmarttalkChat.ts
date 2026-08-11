@@ -182,6 +182,7 @@ export const useAISmarttalkChat = ({
     updateChatTitle,
     createNewChat,
     uploadFile,
+    promoteToKnowledge,
     isUploading,
     addMessage,
   } = useChatMessages(chatMessagesProps);
@@ -362,6 +363,7 @@ export const useAISmarttalkChat = ({
     debugEnabled: debug,
 
     uploadFile,
+    promoteToKnowledge,
     isUploading,
     addMessage,
   };
