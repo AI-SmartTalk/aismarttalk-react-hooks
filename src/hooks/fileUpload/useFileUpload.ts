@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UploadResponse } from '../../types/canvas';
+import { CanvasPurpose, UploadResponse } from '../../types/canvas';
 import { defaultApiUrl } from '../../types/config';
 
 /**
@@ -55,84 +55,102 @@ export interface CanvasLiveUpdate {
   updates: LineUpdate[];
 }
 
+/** Un cœur qui ne connaît pas encore la route v1 : on repasse par l'ancienne. */
+const LEGACY_FALLBACK_STATUSES = [401, 403, 404, 405];
+
 export function useFileUpload({
-  chatModelId, 
-  chatInstanceId, 
-  user, 
+  chatModelId,
+  chatInstanceId,
+  user,
   config,
   onUploadSuccess,
   onUploadError
 }: UseFileUploadProps) {
-  
+
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
 
-  const uploadFile = async (file: File): Promise<UploadResponse> => {
-    
+  const legacyUrl = `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`;
+  const v1Url = `${finalApiUrl}/api/v1/me/conversations/${encodeURIComponent(chatInstanceId)}/attachments`;
+
+  const buildForm = (file: File, purpose: CanvasPurpose): FormData => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('purpose', purpose);
+    return formData;
+  };
+
+  /**
+   * La route v1 rattache le fichier à son propriétaire ; elle exige donc une
+   * personne identifiée. Un visiteur anonyme du widget n'en a pas, et garde la
+   * route publique — qui reste servie par la même logique côté cœur.
+   */
+  const uploadViaV1 = async (file: File, purpose: CanvasPurpose): Promise<Response | null> => {
+    if (!user?.token) return null;
+
+    const response = await fetch(v1Url, {
+      method: 'POST',
+      body: buildForm(file, purpose),
+      headers: {
+        Authorization: `Bearer ${user.token}`,
+        'x-chat-model-id': chatModelId,
+      },
+    });
+
+    return LEGACY_FALLBACK_STATUSES.includes(response.status) ? null : response;
+  };
+
+  const uploadViaLegacy = async (file: File, purpose: CanvasPurpose): Promise<Response> => {
+    const headers: Record<string, string> = {
+      appToken: finalApiToken,
+    };
+
+    if (user?.token) {
+      headers["x-use-chatbot-auth"] = "true";
+      headers["Authorization"] = `Bearer ${user.token}`;
+    }
+
+    return fetch(legacyUrl, {
+      method: 'POST',
+      body: buildForm(file, purpose),
+      headers,
+    });
+  };
+
+  const uploadFile = async (
+    file: File,
+    purpose: CanvasPurpose = 'ANALYSIS'
+  ): Promise<UploadResponse> => {
+
     setIsUploading(true);
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const headers: Record<string, string> = {
-        appToken: finalApiToken,
-      };
-
-      if (user?.token) {
-        headers["x-use-chatbot-auth"] = "true";
-        headers["Authorization"] = `Bearer ${user.token}`;
-      }
-
-      const response = await fetch(
-        `${finalApiUrl}/api/public/chatModel/${chatModelId}/chatInstance/${chatInstanceId}/canva`,
-        {
-          method: 'POST',
-          body: formData,
-          headers: headers,
-        }
-      );
-
+      const response = (await uploadViaV1(file, purpose)) ?? (await uploadViaLegacy(file, purpose));
 
       if (!response.ok) {
-        let errorMessage = `Upload failed with status ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          // If response is not JSON, try to get text
-          try {
-            const textError = await response.text();
-            if (textError) {
-              errorMessage = textError;
-            }
-          } catch {
-            // If we can't get text, stick with the default error message
-          }
-        }
-        throw new Error(errorMessage);
+        throw new Error(await readError(response));
       }
 
       const data = await response.json();
-      
+
       // Call success callback if provided
       if (onUploadSuccess) {
         onUploadSuccess(data);
       }
-      
+
       return data;
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to upload file';
       setError(errorMessage);
-      
+
       // Call error callback if provided
       if (onUploadError) {
         onUploadError(errorMessage);
-      } 
+      }
 
       return {
         success: false,
@@ -147,12 +165,28 @@ export function useFileUpload({
   return {
     // File operations
     uploadFile,
-        
+
     // State
     isUploading,
     error,
-    
+
     // Utility methods
     clearError: () => setError(null)
   };
+}
+
+/** Le message du serveur quand il y en a un, son statut sinon. */
+async function readError(response: Response): Promise<string> {
+  try {
+    const body = await response.clone().json();
+    if (body?.error || body?.message) return body.error || body.message;
+  } catch {
+    try {
+      const text = await response.text();
+      if (text) return text;
+    } catch {
+      // Ni JSON ni texte : le statut est tout ce qu'on peut dire.
+    }
+  }
+  return `Upload failed with status ${response.status}`;
 }
