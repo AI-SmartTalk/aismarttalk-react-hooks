@@ -13,6 +13,16 @@ export type { TypingUser } from "./types/typingUsers";
 export type { Tool } from "./types/tools";
 export type { ChatModel } from "./types/chatModel";
 export type { ChatConfig, UseChatMessagesOptions } from "./types/chatConfig";
-export type { Canvas, CanvasChunk, CanvasMetadata, UploadResponse, FetchCanvasResponse } from "./types/canvas";
+export type {
+  Canvas,
+  CanvasChunk,
+  CanvasMetadata,
+  CanvasFileType,
+  CanvasPurpose,
+  CanvasStatus,
+  CanvasCapabilities,
+  UploadResponse,
+  FetchCanvasResponse,
+} from "./types/canvas";
 export type { CanvasFullContent, LineUpdate, CanvasLiveUpdate } from "./hooks/fileUpload/useFileUpload";
 export { ChatActionTypes, chatReducer, initialChatState } from "./reducers/chatReducers";

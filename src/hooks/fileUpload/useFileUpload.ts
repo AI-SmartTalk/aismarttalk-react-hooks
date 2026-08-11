@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CanvasPurpose, UploadResponse } from '../../types/canvas';
+import { CanvasFileType, CanvasPurpose, CanvasStatus, UploadResponse } from '../../types/canvas';
 import { defaultApiUrl } from '../../types/config';
 
 /**
@@ -39,6 +39,13 @@ interface UseFileUploadProps {
 export interface CanvasFullContent {
   id: string;
   content: string;
+  /** Absents d'un cœur antérieur au suivi de statut : tout est optionnel. */
+  title?: string;
+  fileType?: CanvasFileType;
+  status?: CanvasStatus;
+  purpose?: CanvasPurpose;
+  failureReason?: string | null;
+  sourceUrl?: string | null;
 }
 
 // Define LineUpdate interface matching the internal agents package structure
