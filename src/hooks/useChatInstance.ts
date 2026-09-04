@@ -126,6 +126,10 @@ export const useChatInstance = ({
 
       try {
         localStorage.setItem(storageKey, instanceId);
+        // Jeton de join ws223io remis par le cœur : sans lui, le socket n'écoute rien.
+        if (typeof data.socketToken === "string") {
+          localStorage.setItem(`aist-socket-token:${instanceId}`, data.socketToken);
+        }
       } catch (err) {}
 
       setChatInstanceId(instanceId);

@@ -19,6 +19,12 @@ import {
 import useCanvasHistory from "../canva/useCanvasHistory";
 import { CanvasLiveUpdate } from "../fileUpload/useFileUpload";
 
+
+/** Jeton de join ws223io stocké par useChatInstance à la création de la conversation. */
+const socketJoinTokenFor = (chatInstanceId?: string): string | undefined => {
+  if (!chatInstanceId || typeof localStorage === "undefined") return undefined;
+  try { return localStorage.getItem(`aist-socket-token:${chatInstanceId}`) || undefined; } catch { return undefined; }
+};
 export const useSocketHandler = (
   chatInstanceId: string,
   user: User,
@@ -179,8 +185,14 @@ export const useSocketHandler = (
         console.log(`✅ [WebSocket] Socket connected successfully in ${connectionTime}ms`);
       }
 
-      socket.emit("join", { chatInstanceId, chatModelId });
+      socket.emit("join", { chatInstanceId, chatModelId, token: socketJoinTokenFor(chatInstanceId) });
       setSocketStatus("connected");
+    });
+
+    socket.on("join-error", (data: { reason?: string }) => {
+      trackEvent("join-error");
+      console.warn("[WebSocket] join refused:", data?.reason);
+      setSocketStatus("error");
     });
 
     // Listen for server confirmation that join was successful
@@ -232,7 +244,7 @@ export const useSocketHandler = (
       if (debug) {
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
-      socket.emit("join", { chatInstanceId, chatModelId });
+      socket.emit("join", { chatInstanceId, chatModelId, token: socketJoinTokenFor(chatInstanceId) });
       setSocketStatus("connected");
     });
 
