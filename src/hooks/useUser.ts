@@ -34,11 +34,6 @@ function isTokenValid(user: User): boolean {
     return true;
   }
   
-  // Special case for smartadmin token
-  if (user.token === "smartadmin") {
-    return true;
-  }
-  
   try {
     // Only validate JWT format for tokens that aren't special cases
     if (!user.token.includes('.')) {
