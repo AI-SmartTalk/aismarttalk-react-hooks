@@ -36,14 +36,26 @@ jobs:
       - run: npm test -- --runInBand
       - run: npm run test:release
       - run: npm run build
+      - name: Générer un token temporaire pour l’application GitHub
+        if: vars.AUTOMATION_APP_ID != ''
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: aismarttalk-react-hooks
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
       - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
         id: release
         with:
-          token: ${{ github.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
       - name: Déclencher les checks de la MR de version
-        if: steps.release.outputs.pr != ''
+        if: steps.release.outputs.pr != '' && vars.AUTOMATION_APP_ID == ''
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_PR: ${{ steps.release.outputs.pr }}

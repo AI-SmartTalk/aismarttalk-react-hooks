@@ -581,13 +581,27 @@ Trusted publishing → GitHub Actions : organisation `AI-SmartTalk`, dépôt
 action **Publish** autorisée. Aucun `NPM_TOKEN` n’est nécessaire. Voir
 [la documentation npm](https://docs.npmjs.com/trusted-publishers/).
 
-Activer « Allow GitHub Actions to create and approve pull requests » dans
-Settings → Actions → General. Les workflows n’approuvent pas les MR. Le
-`GITHUB_TOKEN` suffit. Les MR générées par ce token ne lancent pas nécessairement
-la CI automatiquement sans approbation ; le workflow déclenche explicitement
-`test.yml` par `workflow_dispatch` sur leur branche. Les checks restent ainsi
-automatiques et aucun PAT/GitHub App supplémentaire n’est requis. Voir
-[le comportement du GITHUB_TOKEN](https://docs.github.com/en/actions/concepts/security/github_token).
+### Identité GitHub pour les MR automatiques
+
+La politique d’entreprise actuelle bloque la création de MR par `GITHUB_TOKEN`
+(HTTP 409). Le compte CLI ne peut pas modifier cette politique (`admin:org`
+absent). Préférer une GitHub App dédiée, installée **uniquement** sur
+`aismarttalk-react-hooks` et `chatbot-front` : webhook désactivé, permissions
+Contents / Pull requests / Issues en lecture-écriture (Issues sert aux labels
+de Release Please). Aucun droit d’administration, aucun PAT personnel requis.
+
+Dans **chaque dépôt**, configurer la variable Actions `AUTOMATION_APP_ID` avec
+l’App ID et le secret `AUTOMATION_APP_PRIVATE_KEY` avec la clé privée PEM.
+L’action officielle génère un token temporaire limité au dépôt courant et
+le révoque à la fin du job. Ne jamais copier ces secrets dans le code ou un
+commentaire. Voir [l’action GitHub officielle](https://github.com/actions/create-github-app-token/tree/v2).
+Les MR créées par l’App déclenchent leurs checks normalement.
+
+Si l’entreprise autorise ultérieurement le token natif, laisser la variable App
+vide et activer « Allow GitHub Actions to create and approve pull requests »
+dans Settings → Actions → General. Les workflows n’approuvent aucune MR.
+Dans ce mode, ils lancent explicitement `test.yml` par `workflow_dispatch`
+pour automatiser les checks sans approbation manuelle ni token permanent.
 
 Si npm échoue après création de la release GitHub, relancer manuellement le
 workflow depuis `main` avec `publish_tag=vX.Y.Z`. Seuls les tags stables ayant une
