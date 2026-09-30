@@ -22,7 +22,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "npm run build",
-    "docs": "typedoc --out docs src/index.ts"
+    "docs": "typedoc --out docs src/index.ts",
+    "test:release": "node --test scripts/release-policy.test.mjs scripts/local-release-policy.test.mjs scripts/local-release.integration.test.mjs"
   },
   "keywords": [
     "react",
@@ -99,5 +100,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/AI-SmartTalk/aismarttalk-react-hooks"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
