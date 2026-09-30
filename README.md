@@ -562,3 +562,38 @@ interface CanvasFullContent {
   content: string;
 }
 ```
+
+## Versions et publication automatique
+
+Les commits `fix:` déclenchent un patch, `feat:` une version mineure et
+`feat!:` / `BREAKING CHANGE:` une version majeure. Après un merge sur `main`,
+Release Please prépare une MR avec version, lockfile et changelog. Merger cette
+MR crée le tag et la release GitHub, puis publie sur npm seulement après réussite
+de tous les tests, de TypeScript et du build. Le workflow ne fusionne aucune MR.
+
+La première version automatique part du niveau 1.6.1 déjà présent dans le code
+avant le correctif de livraison ; `bootstrap-sha` délimite cet historique. Le
+manifest est ensuite maintenu par Release Please : ne pas le modifier à la main.
+
+Configuration initiale sur npm, pour `@aismarttalk/react-hooks` → Settings →
+Trusted publishing → GitHub Actions : organisation `AI-SmartTalk`, dépôt
+`aismarttalk-react-hooks`, fichier **`release-please.yml`**, environnement vide,
+action **Publish** autorisée. Aucun `NPM_TOKEN` n’est nécessaire. Voir
+[la documentation npm](https://docs.npmjs.com/trusted-publishers/).
+
+Activer « Allow GitHub Actions to create and approve pull requests » dans
+Settings → Actions → General. Les workflows n’approuvent pas les MR. Le
+`GITHUB_TOKEN` suffit. Les MR générées par ce token ne lancent pas nécessairement
+la CI automatiquement sans approbation ; le workflow déclenche explicitement
+`test.yml` par `workflow_dispatch` sur leur branche. Les checks restent ainsi
+automatiques et aucun PAT/GitHub App supplémentaire n’est requis. Voir
+[le comportement du GITHUB_TOKEN](https://docs.github.com/en/actions/concepts/security/github_token).
+
+Si npm échoue après création de la release GitHub, relancer manuellement le
+workflow depuis `main` avec `publish_tag=vX.Y.Z`. Seuls les tags stables ayant une
+release GitHub, appartenant à `main` et concordant avec `package.json` sont admis.
+Une version déjà publiée est ignorée ; une panne du registre bloque le workflow.
+Ne pas supprimer le tag ni incrémenter la version pour réessayer.
+
+Le frontend vérifie quotidiennement npm et prépare sa propre MR de mise à jour,
+avec tests et builds avant création ; il ne nécessite aucun token inter-dépôts.

@@ -169,7 +169,23 @@ describe('useChatInstance', () => {
 
     const { result } = renderHook(() => useChatInstance({ chatModelId: 'model-123', lang: 'en' }));
 
-    await waitFor(() => expect(result.current.error).toBeTruthy());
+    await waitFor(() => expect(result.current.error?.message).toContain('HTTP 500'));
+    expect(result.current.chatInstanceId).toBeNull();
+    expect(result.current.isChanging).toBe(false);
+    await act(async () => { await result.current.getNewInstance(); });
+    expect(result.current.chatInstanceId).toBe('new-instance-123');
+    expect(result.current.error).toBeNull();
+  });
+
+  it.each(['network', 'missing-id'])('exposes a %s failure and permits a successful retry', async kind => {
+    if (kind === 'network') fetchMock.mockRejectedValueOnce(new Error('Network unavailable'));
+    else fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    const { result } = renderHook(() => useChatInstance({ chatModelId: 'model-123', lang: 'en' }));
+    await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+    expect(result.current.isChanging).toBe(false);
+    await act(async () => { await result.current.getNewInstance(); });
+    expect(result.current.chatInstanceId).toBe('new-instance-123');
+    expect(result.current.error).toBeNull();
   });
 
   it('should include user token in headers when provided', async () => {

@@ -111,18 +111,12 @@ export const useChatInstance = ({
         }),
       });
 
-      if (!response.ok) {
-        isChangingRef.current = false;
-        return null;
-      }
+      if (!response.ok) throw new Error(`Failed to create chat instance: HTTP ${response.status}`);
 
       const data = await response.json();
       const instanceId = data.chatInstanceId;
       
-      if (!instanceId) {
-        isChangingRef.current = false;
-        return null;
-      }
+      if (!instanceId) throw new Error('Chat instance response is missing its ID');
 
       try {
         localStorage.setItem(storageKey, instanceId);
@@ -134,6 +128,7 @@ export const useChatInstance = ({
       return instanceId;
     } catch (err) {
       isChangingRef.current = false;
+      setError(err instanceof Error ? err : new Error('Failed to create chat instance'));
       return null;
     }
   };

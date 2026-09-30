@@ -1,0 +1,30 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "58c75039d8ca2623fc7db07ee12d3819dd1a7bb5",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@aismarttalk/react-hooks",
+      "include-component-in-tag": false,
+      "pull-request-title-pattern": "chore${scope}: publier ${version}",
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Nouveaut\u00e9s"
+        },
+        {
+          "type": "fix",
+          "section": "Corrections"
+        },
+        {
+          "type": "perf",
+          "section": "Performance"
+        },
+        {
+          "type": "revert",
+          "section": "Annulations"
+        }
+      ]
+    }
+  }
+}
