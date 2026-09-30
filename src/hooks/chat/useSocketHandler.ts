@@ -34,8 +34,11 @@ export const useSocketHandler = (
   debouncedTypingUsersUpdate: (data: TypingUser) => void,
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
-  debug: boolean = false
+  debug: boolean = false,
+  onJoined?: () => Promise<void>
 ): any => {
+  const onJoinedRef = useRef(onJoined);
+  onJoinedRef.current = onJoined;
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
@@ -185,6 +188,7 @@ export const useSocketHandler = (
 
     // Listen for server confirmation that join was successful
     socket.on("joined", (data) => {
+      if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
       trackEvent("joined");
       if (debug) {
         console.log("🎉 [WebSocket] Successfully Joined Channels");

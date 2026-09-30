@@ -56,7 +56,7 @@ export const shouldMessageBeSent = (
       message.user?.id === currentUserId) ||
     (currentUserEmail && message.user?.email === currentUserEmail);
 
-  if (isBot) {
+  if (isBot || message.metadata?.sentAsAgent === true) {
     return false;
   }
 

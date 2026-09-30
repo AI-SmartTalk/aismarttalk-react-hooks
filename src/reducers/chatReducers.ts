@@ -1,4 +1,5 @@
 import { FrontChatMessage } from "../types/chat";
+import { mergeMessages } from "../utils/mergeMessages";
 import { shouldMessageBeSent } from "../utils/messageUtils";
 import {
   saveConversationHistory,
@@ -163,190 +164,19 @@ export const chatReducer = (
         });
       }
 
-      if (state.messages.length > 0 && action.payload.messages?.length) {
-        // Create a map of existing messages for faster lookup
-        const existingMessages = new Map(
-          state.messages.map((msg) => [msg.id, msg])
-        );
-        
-        const newMessages = action.payload.messages;
-        
-        // Process regular messages from websocket
-        newMessages.forEach((msg) => {
-          if (!msg.id.startsWith("temp-")) {
-            // Check if this message is an update to a temporary message
-            const tempKey = Array.from(existingMessages.values()).find(
-              existingMsg => 
-                existingMsg.id.startsWith("temp-") && 
-                existingMsg.text === msg.text &&
-                existingMsg.user?.id === msg.user?.id
-            );
-            
-            if (tempKey) {
-              // If we found a matching temp message, remove it
-              existingMessages.delete(tempKey.id);
-            }
-            
-            // Add or update the websocket message
-            existingMessages.set(msg.id, {
-              ...msg,
-              isSent: msg.isSent || (tempKey?.isSent || false)
-            });
-          } else {
-            // For temp messages, only add if we don't already have a non-temp version
-            let hasNonTempVersion = false;
-            existingMessages.forEach((existingMsg) => {
-              if (
-                !existingMsg.id.startsWith("temp-") &&
-                existingMsg.text === msg.text &&
-                existingMsg.user?.id === msg.user?.id
-              ) {
-                hasNonTempVersion = true;
-              }
-            });
-            
-            if (!hasNonTempVersion && !existingMessages.has(msg.id)) {
-              existingMessages.set(msg.id, msg);
-            }
-          }
-        });
+      const syncedMessages = mergeMessages(state.messages, action.payload.messages).slice(-50);
+      debouncedSaveMessagesToLocalStorage(syncedMessages, action.payload.chatInstanceId);
+      return { ...state, messages: syncedMessages };
 
-        const mergedMessages = Array.from(existingMessages.values()).sort(
-          (a, b) =>
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
-
-        const limitedMessages = mergedMessages.slice(-50);
-        debouncedSaveMessagesToLocalStorage(
-          limitedMessages,
-          action.payload.chatInstanceId || ""
-        );
-
-        return { ...state, messages: limitedMessages };
-      }
-
-      debouncedSaveMessagesToLocalStorage(
-        action.payload.messages,
-        action.payload.chatInstanceId || ""
-      );
-
-      return { ...state, messages: action.payload.messages.slice(-50) };
-
-    case ChatActionTypes.ADD_MESSAGE:
-      const newMessage = action.payload.message;
-      if (!newMessage) return state;
-
-      // First check: if a message with the same ID already exists
-      // This prevents API + WebSocket duplicates and handles edits
-      const existingMessageWithSameId = state.messages.find(msg => msg.id === newMessage.id);
-      if (existingMessageWithSameId) {
-        if (existingMessageWithSameId.text !== newMessage.text) {
-          // Text changed — this is an edit, update in place
-          const updatedMessages = state.messages.map(msg =>
-            msg.id === newMessage.id
-              ? { ...msg, text: newMessage.text }
-              : msg
-          );
-          debouncedSaveMessagesToLocalStorage(
-            updatedMessages,
-            action.payload.chatInstanceId || ""
-          );
-          return { ...state, messages: updatedMessages };
-        }
-        // Same ID, same text — skip duplicate
-        return state;
-      }
-
-      newMessage.isSent = shouldMessageBeSent(
-        newMessage,
-        action.payload.userId,
-        action.payload.userEmail
-      );
-      
-      // Handle replacement of locally created messages with server messages
-      if (!newMessage.isLocallyCreated) {
-        // Look for locally created messages with same content to replace with server version
-        const localIndex = state.messages.findIndex(
-          msg => 
-            msg.isLocallyCreated && 
-            msg.text === newMessage.text &&
-            // Match user IDs flexibly for anonymous users
-            (msg.user?.id === 'anonymous' || 
-             msg.user?.id === newMessage.user?.id ||
-             (newMessage.user?.id !== 'ai' && msg.user?.id === 'anonymous'))
-        );
-        
-        if (localIndex >= 0) {
-          // Replace local message with server message
-          const updatedMessages = [...state.messages];
-          updatedMessages[localIndex] = {
-            ...newMessage,
-            isSent: state.messages[localIndex].isSent || newMessage.isSent
-          };
-          
-          debouncedSaveMessagesToLocalStorage(
-            updatedMessages,
-            action.payload.chatInstanceId || ""
-          );
-          
-          return { ...state, messages: updatedMessages };
-        }
-        
-        // Check for API + WebSocket duplicates: messages from server with same content
-        // This handles the case where API responds immediately and WebSocket sends the same message
-        const existingServerMessages = state.messages.filter(
-          msg =>
-            !msg.isLocallyCreated &&
-            msg.text === newMessage.text &&
-            msg.user?.id === newMessage.user?.id &&
-            msg.id !== newMessage.id
-        );
-        
-        if (existingServerMessages.length > 0) {
-          // Check if this is likely an API + WebSocket duplicate
-          // Allow some time difference for API vs WebSocket timing
-          const mostRecentServerMsg = existingServerMessages[existingServerMessages.length - 1];
-          const existingTime = new Date(mostRecentServerMsg.created_at).getTime();
-          const newTime = new Date(newMessage.created_at).getTime();
-          const timeDiff = Math.abs(existingTime - newTime);
-          
-          // Block if messages are within 10 seconds (API + WebSocket scenario)
-          // This is more generous than rapid clicks but catches API/WebSocket duplicates
-          if (timeDiff < 10000) {
-            return state;
-          }
-        }
-      } else {
-        // For locally created messages, only prevent rapid double-clicks (within 500ms)
-        const recentLocalDuplicates = state.messages.filter(
-          msg =>
-            msg.isLocallyCreated &&
-            msg.text === newMessage.text &&
-            msg.user?.id === newMessage.user?.id &&
-            msg.id !== newMessage.id
-        );
-        
-        if (recentLocalDuplicates.length > 0) {
-          const mostRecentDuplicate = recentLocalDuplicates[recentLocalDuplicates.length - 1];
-          const existingTime = new Date(mostRecentDuplicate.created_at).getTime();
-          const newTime = new Date(newMessage.created_at).getTime();
-          const timeDiff = Math.abs(existingTime - newTime);
-          
-          // Only block if within 500ms (rapid double-click protection)
-          if (timeDiff < 500) {
-            return state;
-          }
-        }
-      }
-      
-      // Add the message
-      const updatedMessages = [...state.messages, newMessage];
-      debouncedSaveMessagesToLocalStorage(
-        updatedMessages,
-        action.payload.chatInstanceId || ""
-      );
-
-      return { ...state, messages: updatedMessages };
+    case ChatActionTypes.ADD_MESSAGE: {
+      const incoming = action.payload.message;
+      if (!incoming) return state;
+      const newMessage = { ...incoming, isSent: incoming.metadata?.sentAsAgent === true ? false :
+        incoming.isSent ?? shouldMessageBeSent(incoming, action.payload.userId, action.payload.userEmail) };
+      const messages = mergeMessages(state.messages, [newMessage]).slice(-50);
+      debouncedSaveMessagesToLocalStorage(messages, action.payload.chatInstanceId || "");
+      return { ...state, messages };
+    }
 
     case ChatActionTypes.RESET_CHAT:
       if (action.payload.chatInstanceId) {

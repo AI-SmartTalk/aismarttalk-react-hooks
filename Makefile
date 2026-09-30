@@ -1,7 +1,10 @@
+.PHONY: install-chat-hooks
+
+HOOKS_VERSION := $(shell node -p "require('./package.json').version")
+
 install-chat-hooks:
 	npm run build
-	rm aismarttalk-react-hooks.tgz || true
-	cd ../chatbot-front && rm aismarttalk-react-hooks.tgz || true 
-	npm pack --pack-destination . && mv *.tgz aismarttalk-react-hooks.tgz
-	cp aismarttalk-react-hooks.tgz ../chatbot-front
-	cd ../chatbot-front && npm install aismarttalk-react-hooks.tgz && make stop && make install
+	mkdir -p ../chatbot-front/vendor
+	npm pack --ignore-scripts --pack-destination ../chatbot-front/vendor
+	cd ../chatbot-front && npm install ./vendor/aismarttalk-react-hooks-$(HOOKS_VERSION).tgz
+	$(MAKE) -C ../chatbot-front build universal-build
