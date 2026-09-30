@@ -563,51 +563,45 @@ interface CanvasFullContent {
 }
 ```
 
-## Versions et publication automatique
+## Release locale en une commande
 
-Les commits `fix:` déclenchent un patch, `feat:` une version mineure et
-`feat!:` / `BREAKING CHANGE:` une version majeure. Après un merge sur `main`,
-Release Please prépare une MR avec version, lockfile et changelog. Merger cette
-MR crée le tag et la release GitHub, puis publie sur npm seulement après réussite
-de tous les tests, de TypeScript et du build. Le workflow ne fusionne aucune MR.
+Depuis `aismarttalk-react-hooks`, après fusion des MR SDK et frontend sur leurs
+`main` respectifs :
 
-La première version automatique part du niveau 1.6.1 déjà présent dans le code
-avant le correctif de livraison ; `bootstrap-sha` délimite cet historique. Le
-manifest est ensuite maintenu par Release Please : ne pas le modifier à la main.
+```sh
+make release
+```
 
-Configuration initiale sur npm, pour `@aismarttalk/react-hooks` → Settings →
-Trusted publishing → GitHub Actions : organisation `AI-SmartTalk`, dépôt
-`aismarttalk-react-hooks`, fichier **`release-please.yml`**, environnement vide,
-action **Publish** autorisée. Aucun `NPM_TOKEN` n’est nécessaire. Voir
-[la documentation npm](https://docs.npmjs.com/trusted-publishers/).
+Les deux dépôts doivent être adjacents, sur `main`, sans changement local ni
+commit non poussé. Il faut Node 24+, npm, Git et GitHub CLI, une authentification
+`npm login` valide, `gh auth login` et l’accès Git en écriture aux deux dépôts.
+La commande fait un fetch/pull fast-forward, valide SDK et frontend avec
+l’archive candidate, pousse commit SDK + tag de manière atomique, publie sur npm,
+épingle la dépendance publiée dans le frontend, revalide et pousse le frontend,
+puis crée la release GitHub. npm peut demander un code 2FA dans le terminal.
+Aucune GitHub App, aucun secret Actions et aucun Trusted Publisher requis.
 
-### Identité GitHub pour les MR automatiques
+**Le push du frontend sur main déclenche son déploiement existant.** Aucun push
+forcé : un concurrent ou un refus de permissions arrête la commande. Les push
+utilisent `--no-verify` puisque tests et builds sont déjà exécutés par la commande.
 
-La politique d’entreprise actuelle bloque la création de MR par `GITHUB_TOKEN`
-(HTTP 409). Le compte CLI ne peut pas modifier cette politique (`admin:org`
-absent). Préférer une GitHub App dédiée, installée **uniquement** sur
-`aismarttalk-react-hooks` et `chatbot-front` : webhook désactivé, permissions
-Contents / Pull requests / Issues en lecture-écriture (Issues sert aux labels
-de Release Please). Aucun droit d’administration, aucun PAT personnel requis.
+```sh
+make release DRY_RUN=1       # afficher le plan, sans commit/push/publication
+make release BUMP=minor     # patch par défaut ; minor ou major au choix
+make release VERSION=1.7.0  # choisir explicitement une version stable supérieure
+```
 
-Dans **chaque dépôt**, configurer la variable Actions `AUTOMATION_APP_ID` avec
-l’App ID et le secret `AUTOMATION_APP_PRIVATE_KEY` avec la clé privée PEM.
-L’action officielle génère un token temporaire limité au dépôt courant et
-le révoque à la fin du job. Ne jamais copier ces secrets dans le code ou un
-commentaire. Voir [l’action GitHub officielle](https://github.com/actions/create-github-app-token/tree/v2).
-Les MR créées par l’App déclenchent leurs checks normalement.
+Si `package.json` prépare déjà une version supérieure à npm, le mode patch la
+publie telle quelle ; sinon il calcule le prochain patch. La première release
+préparée est donc 1.6.2, pas 1.6.3. Le changelog est généré depuis le dernier tag.
 
-Si l’entreprise autorise ultérieurement le token natif, laisser la variable App
-vide et activer « Allow GitHub Actions to create and approve pull requests »
-dans Settings → Actions → General. Les workflows n’approuvent aucune MR.
-Dans ce mode, ils lancent explicitement `test.yml` par `workflow_dispatch`
-pour automatiser les checks sans approbation manuelle ni token permanent.
-
-Si npm échoue après création de la release GitHub, relancer manuellement le
-workflow depuis `main` avec `publish_tag=vX.Y.Z`. Seuls les tags stables ayant une
-release GitHub, appartenant à `main` et concordant avec `package.json` sont admis.
-Une version déjà publiée est ignorée ; une panne du registre bloque le workflow.
-Ne pas supprimer le tag ni incrémenter la version pour réessayer.
-
-Le frontend vérifie quotidiennement npm et prépare sa propre MR de mise à jour,
-avec tests et builds avant création ; il ne nécessite aucun token inter-dépôts.
+L’état et l’archive validée sont conservés dans `.git/aist-local-release` jusqu’au
+succès complet. En cas d’échec, corriger la cause puis relancer **la même commande** :
+elle reprend la même version, vérifie l’intégrité npm et évite une double
+publication. Ne pas modifier les fichiers de release pendant cette reprise.
+Une modification étrangère, un autre commit ou une archive différente arrête
+le processus. Ne pas supprimer un état après publication ; cela ferait perdre
+la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que le
+processus est terminé avant de retirer uniquement le verrou
+`.git/aist-local-release.lock`. Les fichiers préparés restent disponibles en
+cas d’échec avant publication pour inspection et correction.
