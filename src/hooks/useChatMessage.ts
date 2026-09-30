@@ -20,6 +20,7 @@ import {
 } from "../utils/localStorageHelpers";
 import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
+import { useConversationSync } from "./chat/useConversationSync";
 import { useSocketHandler } from "./chat/useSocketHandler";
 import useChatInstance from "./useChatInstance";
 import { shouldMessageBeSent } from "../utils/messageUtils";
@@ -329,191 +330,19 @@ export const useChatMessages = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatInstanceId]); // Only depend on chatInstanceId - fetchCanvases is stable
 
-  const selectConversation = useCallback(
-    async (id: string | undefined) => {
-      try {
-        if (!id) {
-          await getNewInstance();
-          return;
-        }
-
-        if (id === chatInstanceId) {
-          return;
-        }
-
-        clearError();
-        
-        dispatch({
-          type: ChatActionTypes.SET_MESSAGES,
-          payload: { 
-            chatInstanceId: id, 
-            messages: [],
-            resetMessages: true
-          },
-        });
-          
-        clearCachedMessages(id);
-        
-        setChatInstanceId(id);
-        localStorage.setItem(storageKey, id);
-
-        hasInitializedRef.current = false;
-
-        try {
-          const existingConversation = conversations.find(conv => conv.id === id);
-          
-          if (existingConversation && existingConversation.messages && existingConversation.messages.length > 0) {
-            const strictMessages = strictlyFilterMessagesByInstance(existingConversation.messages, id);
-            
-            if (strictMessages.length > 0) {
-              dispatch({
-                type: ChatActionTypes.SET_MESSAGES,
-                payload: { 
-                  chatInstanceId: id, 
-                  messages: strictMessages,
-                  userId: user?.id || 'anonymous',
-                  userEmail: user?.email,
-                  resetMessages: true
-                },
-              });
-              
-              if (existingConversation.title) {
-                setChatTitle(existingConversation.title);
-              }
-              
-              cachedMessagesRef.current[id] = strictMessages;
-              hasInitializedRef.current = true;
-              return;
-            }
-          }
-          
-          const savedConversation = loadConversationHistory(id);
-          if (savedConversation?.messages && savedConversation.messages.length > 0) {
-            const strictMessages = strictlyFilterMessagesByInstance(savedConversation.messages, id);
-            
-            if (strictMessages.length > 0) {
-              dispatch({
-                type: ChatActionTypes.SET_MESSAGES,
-                payload: { 
-                  chatInstanceId: id, 
-                  messages: strictMessages,
-                  userId: user?.id || 'anonymous',
-                  userEmail: user?.email,
-                  resetMessages: true
-                },
-              });
-              
-              if (savedConversation.title) {
-                setChatTitle(savedConversation.title);
-              }
-              
-              cachedMessagesRef.current[id] = strictMessages;
-              hasInitializedRef.current = true;
-              return;
-            }
-          }
-          
-          // Uniquement appeler l'API s'il n'y a pas de données en cache
-          const response = await fetch(`${finalApiUrl}/api/chat/history/${id}`, {
-            headers: finalApiToken
-              ? { Authorization: `Bearer ${finalApiToken}` }
-              : {},
-          });
-
-          if (!response.ok) {
-            handleApiError(
-              response.status,
-              `Failed to fetch messages: ${response.status}`
-            );
-            return;
-          }
-
-          const data = await response.json();
-          const apiMessages = data.messages || [];
-          
-          if (apiMessages?.length > 0) {
-            const currentUserId = data.connectedOrAnonymousUser?.id || user?.id || 'anonymous';
-            const currentUserEmail = data.connectedOrAnonymousUser?.email || user?.email;
-
-            const processedMessages = apiMessages.map((message: any) => ({
-              id: message.id,
-              text: message.text,
-              chatInstanceId: id,
-              created_at: message.created_at,
-              updated_at: message.updated_at,
-              user: message.user || { id: 'anonymous' },
-              isSent: shouldMessageBeSent(
-                message,
-                currentUserId,
-                currentUserEmail
-              ),
-            }));
-
-            dispatch({
-              type: ChatActionTypes.SET_MESSAGES,
-              payload: { 
-                chatInstanceId: id, 
-                messages: processedMessages,
-                userId: currentUserId,
-                userEmail: currentUserEmail,
-                resetMessages: true
-              },
-            });
-            
-            cachedMessagesRef.current[id] = processedMessages;
-            
-            if (data.title) {
-              setChatTitle(data.title);
-            }
-          } else {
-            dispatch({
-              type: ChatActionTypes.SET_MESSAGES,
-              payload: { 
-                chatInstanceId: id, 
-                messages: [],
-                resetMessages: true
-              },
-            });
-          }
-          hasInitializedRef.current = true;
-        } catch (error) {
-          dispatch({
-            type: ChatActionTypes.SET_MESSAGES,
-            payload: { 
-              chatInstanceId: id, 
-              messages: [],
-              resetMessages: true
-            },
-          });
-          hasInitializedRef.current = true;
-        }
-      } catch (error) {
-        setError(
-          error instanceof Error
-            ? error.message
-            : "Unknown error selecting conversation"
-        );
-        setErrorType("network");
-        setErrorCode(null);
-        hasInitializedRef.current = true;
-      }
-    },
-    [
-      finalApiUrl,
-      finalApiToken,
-      getNewInstance,
-      handleApiError,
-      setChatInstanceId,
-      storageKey,
-      clearError,
-      user?.id,
-      user?.email,
-      clearCachedMessages,
-      setChatTitle,
-      conversations,
-      chatInstanceId
-    ]
-  );
+  const selectConversation = useCallback(async (id: string | undefined) => {
+    if (!id) { await getNewInstance(); return; }
+    if (id === chatInstanceId) return;
+    clearError();
+    const saved = loadConversationHistory(id);
+    const messages = strictlyFilterMessagesByInstance(saved.messages || [], id);
+    dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: {
+      chatInstanceId: id, messages, resetMessages: true,
+    } });
+    setChatTitle(saved.title || "");
+    setChatInstanceId(id);
+    localStorage.setItem(storageKey, id);
+  }, [chatInstanceId, getNewInstance, clearError, setChatInstanceId, storageKey]);
 
   useEffect(() => {
     if (chatInstanceId) return;
@@ -646,108 +475,26 @@ export const useChatMessages = ({
     });
   }, 500);
 
-  const fetchMessagesFromApi = useCallback(async () => {
-    const currentInstanceId = chatInstanceId;
-    if (!currentInstanceId) {
-      return;
-    }
-
-    if (hasInitializedRef.current) {
-      return;
-    }
-
-    // Marquer comme initialisé AVANT l'appel API pour éviter les appels multiples
-    hasInitializedRef.current = true;
-
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-
-      if (finalApiToken) {
-        headers.appToken = finalApiToken;
-      }
-
-      if (user?.token) {
-        headers["x-use-chatbot-auth"] = "true";
-        headers.Authorization = `Bearer ${user.token}`;
-      }
-
-      const response = await fetch(
-        `${finalApiUrl}/api/chat/history/${currentInstanceId}`,
-        {
-          headers,
-        }
-      );
-
-      if (!response.ok) {
-        handleApiError(
-          response.status,
-          `Failed to fetch messages: ${response.status}`
-        );
-        return;
-      }
-
-      clearError();
-
-      const data = await response.json();
-      const apiMessages = data.messages || [];
-
-      if (apiMessages.length > 0) {
-        const currentUserId = data.connectedOrAnonymousUser?.id || user?.id;
-
-        const processedMessages = apiMessages.map((message: any) => {
-          return {
-            id: message.id,
-            text: message.text,
-            chatInstanceId: currentInstanceId,
-            created_at: message.created_at,
-            updated_at: message.updated_at,
-            user: message.user,
-            isSent: shouldMessageBeSent(
-              message,
-              currentUserId,
-              data.connectedOrAnonymousUser?.email || user?.email
-            ),
-          };
-        });
-
-        cachedMessagesRef.current[currentInstanceId] = processedMessages;
-
-        dispatch({
-          type: ChatActionTypes.SET_MESSAGES,
-          payload: {
-            chatInstanceId: currentInstanceId,
-            messages: processedMessages,
-            userId: currentUserId,
-            userEmail: data.connectedOrAnonymousUser?.email || user?.email,
-          },
-        });
-
-        if (data.title) {
-          setChatTitle(data.title);
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-      setApiError(
-        error instanceof Error
-          ? error.message
-          : "Unknown error fetching messages",
-        "network"
-      );
-    }
-  }, [
+  const fetchMessagesFromApi = useConversationSync({
     chatInstanceId,
-    finalApiUrl,
-    finalApiToken,
-    user,
-    handleApiError,
-    clearError,
-    setApiError,
-    setChatTitle,
-    dispatch
-  ]);
+    apiUrl: finalApiUrl,
+    apiToken: finalApiToken,
+    userToken: user?.token,
+    socketStatus,
+    onHistory: (data) => {
+      const ownerId = data.connectedOrAnonymousUser?.id || user?.id;
+      const ownerEmail = data.connectedOrAnonymousUser?.email || user?.email;
+      const messages = (data.messages || []).map((message: FrontChatMessage) => ({
+        ...message,
+        chatInstanceId,
+        isSent: shouldMessageBeSent(message, ownerId, ownerEmail),
+      }));
+      dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: {
+        chatInstanceId, messages, userId: ownerId, userEmail: ownerEmail,
+      } });
+      if (data.title) setChatTitle(data.title);
+    },
+  });
 
   const { addMessage } = useMessageHandler(
     chatInstanceId,
@@ -773,7 +520,8 @@ export const useChatMessages = ({
     debouncedTypingUsersUpdate,
     canvasHistory,
     state.messages,
-    debug
+    debug,
+    fetchMessagesFromApi
   );
 
   const { uploadFile, promoteToKnowledge, isUploading } = useFileUpload({

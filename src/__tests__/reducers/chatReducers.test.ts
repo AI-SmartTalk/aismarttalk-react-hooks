@@ -192,7 +192,7 @@ describe("chatReducer", () => {
     };
 
     const newState2 = chatReducer(stateWithServerMessage, action2);
-    expect(newState2.messages.length).toBe(1); // Should be blocked
+    expect(newState2.messages.length).toBe(2); // Distinct persisted IDs are legitimate replies.
 
     // Test 3: Message after longer time - should be allowed
     const laterMessage = {
@@ -242,7 +242,7 @@ describe("chatReducer", () => {
 
     // WebSocket sends the same message 2 seconds later
     const websocketMessage = {
-      id: "ws-msg-1",
+      id: "api-msg-1",
       text: "Hello from API", // Same text
       chatInstanceId: "chat123",
       isSent: true,
@@ -266,7 +266,7 @@ describe("chatReducer", () => {
 
     const newState = chatReducer(stateWithApiMessage, action);
     
-    // WebSocket message should be blocked as duplicate (within 10 seconds)
+    // The same persisted ID identifies the HTTP + WebSocket replay.
     expect(newState.messages.length).toBe(1);
     expect(newState.messages[0].id).toBe("api-msg-1"); // Original API message preserved
   });

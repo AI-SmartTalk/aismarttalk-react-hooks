@@ -21,26 +21,13 @@ describe('index barrel exports', () => {
     expect(typeof indexExports.useUser).toBe('function');
   });
   
-  // This test is skipped because TypeScript types are not present at runtime
-  it.skip('should export type declarations in TypeScript', () => {
-    // This test would normally fail in Jest because types
-    // are removed during transpilation and don't exist at runtime.
-    // We're skipping it since it's a compile-time check, not runtime.
-    
-    // TypeScript types that should be exported:
-    // - User
-    // - FrontChatMessage
-    // - CTADTO
-    // - TypingUser
-    // - Tool
-    // - ChatModel
-    // - ChatConfig
-    // - UseChatMessagesOptions
-    // - ChatHistoryItem
+  it('exposes the supported runtime API', () => {
+    const hooks = ['useChatMessages', 'useChatInstance', 'useAISmarttalkChat', 'useUser',
+      'useChatModel', 'useOtpAuth', 'useFileUpload', 'useSocketHandler'];
+    for (const name of hooks) expect(typeof (indexExports as any)[name]).toBe('function');
+    expect(indexExports.ChatActionTypes).toBeDefined();
+    expect(typeof indexExports.chatReducer).toBe('function');
+    expect(indexExports.initialChatState).toBeDefined();
+    expect(Object.keys(indexExports).sort()).toEqual([...hooks, 'ChatActionTypes', 'chatReducer', 'initialChatState'].sort());
   });
-  
-  it('should have the correct number of exports', () => {
-    // Just the 4 hook functions should be exported as runtime values
-    expect(Object.keys(indexExports).length).toBe(4);
-  });
-}); 
+});

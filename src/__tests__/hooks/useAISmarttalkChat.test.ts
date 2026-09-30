@@ -26,7 +26,7 @@ describe('useAISmarttalkChat', () => {
   // Create mock data
   const mockUser = { id: 'user-123', name: 'Test User' };
   const mockChatModel = { id: 'model-123', name: 'Test Model' };
-  const mockMessages = [{ id: '1', content: 'Hello', sender: 'user' }];
+  const mockMessages = [{ id: '1', text: 'Hello', user: mockUser, isSent: true, chatInstanceId: 'instance-123', created_at: '2026-09-30T10:00:00Z', updated_at: '2026-09-30T10:00:00Z' }];
   const mockConversations = [{ id: '1', title: 'Conversation 1' }];
 
   beforeEach(() => {
@@ -163,10 +163,6 @@ describe('useAISmarttalkChat', () => {
   });
 
   it('should handle conversation selection errors', async () => {
-    // Setup console.error mock
-    const originalConsoleError = console.error;
-    console.error = jest.fn();
-    
     // Make selectConversation throw an error
     mockSelectConversation.mockImplementation(() => {
       throw new Error('Select conversation error');
@@ -178,16 +174,9 @@ describe('useAISmarttalkChat', () => {
     }));
     
     await act(async () => {
-      await result.current.handleConversationSelect('new-instance-id');
+      await expect(result.current.handleConversationSelect('new-instance-id')).rejects.toThrow('Select conversation error');
     });
     
-    expect(console.error).toHaveBeenCalledWith(
-      'Error selecting conversation:', 
-      expect.any(Error)
-    );
-    
-    // Restore console.error
-    console.error = originalConsoleError;
   });
 
   it('should use provided config', () => {

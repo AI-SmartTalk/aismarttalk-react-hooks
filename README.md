@@ -562,3 +562,46 @@ interface CanvasFullContent {
   content: string;
 }
 ```
+
+## Release locale en une commande
+
+Depuis `aismarttalk-react-hooks`, après fusion des MR SDK et frontend sur leurs
+`main` respectifs :
+
+```sh
+make release
+```
+
+Les deux dépôts doivent être adjacents, sur `main`, sans changement local ni
+commit non poussé. Il faut Node 24+, npm, Git et GitHub CLI, une authentification
+`npm login` valide, `gh auth login` et l’accès Git en écriture aux deux dépôts.
+La commande fait un fetch/pull fast-forward, valide SDK et frontend avec
+l’archive candidate, pousse commit SDK + tag de manière atomique, publie sur npm,
+épingle la dépendance publiée dans le frontend, revalide et pousse le frontend,
+puis crée la release GitHub. npm peut demander un code 2FA dans le terminal.
+Aucune GitHub App, aucun secret Actions et aucun Trusted Publisher requis.
+
+**Le push du frontend sur main déclenche son déploiement existant.** Aucun push
+forcé : un concurrent ou un refus de permissions arrête la commande. Les push
+utilisent `--no-verify` puisque tests et builds sont déjà exécutés par la commande.
+
+```sh
+make release DRY_RUN=1       # afficher le plan, sans commit/push/publication
+make release BUMP=minor     # patch par défaut ; minor ou major au choix
+make release VERSION=1.7.0  # choisir explicitement une version stable supérieure
+```
+
+Si `package.json` prépare déjà une version supérieure à npm, le mode patch la
+publie telle quelle ; sinon il calcule le prochain patch. La première release
+préparée est donc 1.6.2, pas 1.6.3. Le changelog est généré depuis le dernier tag.
+
+L’état et l’archive validée sont conservés dans `.git/aist-local-release` jusqu’au
+succès complet. En cas d’échec, corriger la cause puis relancer **la même commande** :
+elle reprend la même version, vérifie l’intégrité npm et évite une double
+publication. Ne pas modifier les fichiers de release pendant cette reprise.
+Une modification étrangère, un autre commit ou une archive différente arrête
+le processus. Ne pas supprimer un état après publication ; cela ferait perdre
+la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que le
+processus est terminé avant de retirer uniquement le verrou
+`.git/aist-local-release.lock`. Les fichiers préparés restent disponibles en
+cas d’échec avant publication pour inspection et correction.

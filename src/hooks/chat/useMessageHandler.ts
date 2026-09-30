@@ -23,7 +23,7 @@ export const useMessageHandler = (
       id: message.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       text: message.text,
       isSent: false,
-      isLocallyCreated: true,
+      isLocallyCreated: !message.id || /^(temp-|streaming-)/.test(message.id),
       chatInstanceId,
       created_at: message.created_at || new Date().toISOString(),
       updated_at: message.updated_at || new Date().toISOString(),
@@ -39,7 +39,7 @@ export const useMessageHandler = (
       ...(message.metadata !== undefined ? { metadata: message.metadata } : {}),
     };
     
-    newMessage.isSent = shouldMessageBeSent(newMessage, user.id, user.email);
+    newMessage.isSent = message.isSent ?? shouldMessageBeSent(newMessage, user.id, user.email);
 
     if (chatTitle === '💬') {
       setChatTitle(
