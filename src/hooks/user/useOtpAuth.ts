@@ -118,7 +118,7 @@ export const useOtpAuth = ({
       const response = await fetch(`${finalApiUrl}/api/auth/otp-auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code, chatInstanceId }),
+        body: JSON.stringify({ email, code, chatInstanceId, chatModelId }),
       });
       
       if (!response.ok) {

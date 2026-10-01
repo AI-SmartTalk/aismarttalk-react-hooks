@@ -181,6 +181,8 @@ export const useAISmarttalkChat = ({
     suggestions,
     updateChatTitle,
     createNewChat,
+    instanceError,
+    retryChatSession,
     uploadFile,
     promoteToKnowledge,
     isUploading,
@@ -285,15 +287,8 @@ export const useAISmarttalkChat = ({
       logger.log("Executing logout");
       logout();
 
-      logger.log("Creating new conversation for anonymous user");
-      const newChatId = await createNewChat(initialUser);
-      logger.log("Created new chat ID:", newChatId);
-
-      if (newChatId) {
-        logger.log("Selecting new conversation");
-        await selectConversation(newChatId);
-      }
-
+      // Instance restoration belongs to useChatInstance, which reacts to the
+      // anonymous identity. Do not race a second creator against that effect.
       logger.log("Logout process complete");
       logger.groupEnd();
     } catch (error) {
@@ -327,6 +322,8 @@ export const useAISmarttalkChat = ({
   return {
     chatInstanceId,
     createNewChat,
+    sessionError: instanceError,
+    retryChatSession,
     selectConversation,
     updateChatTitle,
     canvases,
