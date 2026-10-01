@@ -143,6 +143,19 @@ export default function useUser(initialUserOverride?: User) {
     }
   }, [user, initialUserOverride]);
 
+  useEffect(() => {
+    if (initialUserOverride) return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== "user") return;
+      try {
+        const next = event.newValue ? JSON.parse(event.newValue) : initialUser;
+        setUserState(isValidAuthenticatedUser(next) ? next : initialUser);
+      } catch { setUserState(initialUser); }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [initialUserOverride]);
+
   /**
    * Updates the user state and persists the new user to localStorage.
    * Will not persist initialUserOverride to maintain its temporary nature.

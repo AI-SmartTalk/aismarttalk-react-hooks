@@ -37,6 +37,9 @@ export const useSocketHandler = (
   debug: boolean = false,
   onJoined?: () => Promise<void>
 ): any => {
+  const identity = JSON.stringify([chatInstanceId, user.id, user.token]);
+  const liveIdentity = useRef(identity);
+  liveIdentity.current = identity;
   const onJoinedRef = useRef(onJoined);
   onJoinedRef.current = onJoined;
   const socketRef = useRef<any>(null);
@@ -160,7 +163,12 @@ export const useSocketHandler = (
     socketRef.current._debug = debug;
     socketRef.current._connectTime = Date.now();
 
-    socket.on("connect_error", (err) => {
+    const on = (event: string, listener: (...args: any[]) => void) => socket.on(event, (...args: any[]) => {
+      if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+      listener(...args);
+    });
+
+    on("connect_error", (err) => {
       trackEvent("connect_error");
       if (debug) {
         console.error("❌ [WebSocket] Socket connection error:", err.message || err);
@@ -174,7 +182,7 @@ export const useSocketHandler = (
       setSocketStatus("error");
     });
 
-    socket.on("connect", () => {
+    on("connect", () => {
       trackEvent("connect");
       const connectionTime =
         Date.now() - (socketRef.current?._connectTime || Date.now());
@@ -182,12 +190,12 @@ export const useSocketHandler = (
         console.log(`✅ [WebSocket] Socket connected successfully in ${connectionTime}ms`);
       }
 
-      socket.emit("join", { chatInstanceId, chatModelId });
+      socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
     });
 
     // Listen for server confirmation that join was successful
-    socket.on("joined", (data) => {
+    on("joined", (data) => {
       if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
       trackEvent("joined");
       if (debug) {
@@ -202,7 +210,7 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("disconnect", (reason) => {
+    on("disconnect", (reason) => {
       trackEvent("disconnect");
       reconnectCountRef.current++;
 
@@ -236,7 +244,7 @@ export const useSocketHandler = (
       if (debug) {
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
-      socket.emit("join", { chatInstanceId, chatModelId });
+      socket.emit("join", { chatInstanceId });
       setSocketStatus("connected");
     });
 
@@ -247,7 +255,7 @@ export const useSocketHandler = (
       setSocketStatus("error");
     });
 
-    socket.on("chat-message", (data) => {
+    on("chat-message", (data) => {
       trackEvent("chat-message");
 
       if (data.chatInstanceId === chatInstanceId) {
@@ -310,12 +318,12 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("user-typing", (data: TypingUser) => {
+    on("user-typing", (data: TypingUser) => {
       trackEvent("user-typing");
       stableTypingUpdate(data);
     });
 
-    socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
+    on("canvas-live-update", (data: CanvasLiveUpdate) => {
       trackEvent("canvas-live-update");
       if (debug) {
         console.log("\n🎨 [WebSocket] Canvas Live Update");
@@ -342,7 +350,7 @@ export const useSocketHandler = (
       });
     });
 
-    socket.on("update-suggestions", (data) => {
+    on("update-suggestions", (data) => {
       trackEvent("update-suggestions");
       if (data.chatInstanceId === chatInstanceId) {
         if (debug) {
@@ -358,7 +366,7 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("conversation-starters", (data) => {
+    on("conversation-starters", (data) => {
       trackEvent("conversation-starters");
       if (
         data.chatInstanceId === chatInstanceId &&
@@ -374,56 +382,13 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on(
-      "otp-login",
-      (data: { chatInstanceId: string; user: User; token: string }) => {
-        trackEvent("otp-login");
-        if (debug) {
-          console.log("\n🔐 [WebSocket] OTP Login");
-        }
+    // Credential changes must arrive from the authenticated HTTP flow or the
+    // verified embedding parent. A room notification is never a login proof.
+    on("otp-login", (data: { chatInstanceId?: string }) => {
+      if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
+    });
 
-        if (data.user && data.token) {
-          const finalUser: User = {
-            ...data.user,
-            token: data.token,
-            id: data.user.id || `user-${data.user.email.split("@")[0]}`,
-          };
-
-          if (debug) {
-            console.log("   Received user token", {
-              email: finalUser.email,
-              id: finalUser.id,
-            });
-          }
-
-          setUser(finalUser);
-
-          try {
-            localStorage.setItem("user", JSON.stringify(finalUser));
-            if (debug) {
-              console.log("   ✓ User saved to localStorage");
-            }
-          } catch (err) {
-            if (debug) {
-              console.error("   ❌ Failed to store user in localStorage:", err);
-            }
-          }
-
-          if (debug) {
-            console.log("   🔌 Disconnecting socket to reconnect with new user credentials");
-          }
-          socket.disconnect();
-        } else {
-          if (debug) {
-            console.error("   ❌ Invalid user data from otp-login, missing token or user data");
-          }
-          setUser({ ...initialUser });
-          localStorage.removeItem("user");
-        }
-      }
-    );
-
-    socket.on("tool-run-start", (data: Tool) => {
+    on("tool-run-start", (data: Tool) => {
       trackEvent("tool-run-start");
       if (debug) {
         console.log("🔧 [WebSocket] Tool started:", data.name);
@@ -432,7 +397,7 @@ export const useSocketHandler = (
     });
 
     // Legacy canvas events for backward compatibility
-    socket.on("canvas:update", (canvas: any) => {
+    on("canvas:update", (canvas: any) => {
       trackEvent("canvas:update");
       if (debug) {
         console.log("🎨 [WebSocket] Legacy canvas:update event received");
@@ -449,7 +414,7 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on(
+    on(
       "canvas:line-update",
       ({
         start,
@@ -501,7 +466,7 @@ export const useSocketHandler = (
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, user.id, user.token]);
 
   return socketRef;
 };

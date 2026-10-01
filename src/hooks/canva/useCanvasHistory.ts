@@ -38,7 +38,7 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
   
   // Use refs to track initialization to prevent loops
   const isInitializedRef = useRef<boolean>(false);
-  const storageLoadedRef = useRef<boolean>(false);
+  const [loadedScope, setLoadedScope] = useState('');
 
   // Helper function to convert CanvasFullContent to ExtendedCanvas
   const toExtendedCanvas = useCallback((canvasData: CanvasFullContent): ExtendedCanvas => {
@@ -56,29 +56,29 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     };
   }, []);
 
-  // Load canvases from storage on initialization - ONLY RUN ONCE
+  // Each conversation has independent canvas state. A changed scope must not
+  // expose or persist the previous conversation's private content.
   useEffect(() => {
-    if (storageLoadedRef.current) return;
-        
-    const storedCanvases = localStorage.getItem(storageKey);
-    if (storedCanvases) {
-      try {
-        const parsedCanvases: ExtendedCanvas[] = JSON.parse(storedCanvases);
-        setCanvases(parsedCanvases);
-        if (parsedCanvases.length > 0 && !activeCanvasId) {
-          setActiveCanvasId(parsedCanvases[0].id);
-        }
-        storageLoadedRef.current = true;
-      } catch (err) {
+    isInitializedRef.current = false;
+    setCanvas({ title: '', content: [] });
+    setHistory([]);
+    let restored: ExtendedCanvas[] = [];
+    try {
+      if (chatInstanceId) {
+        const stored = localStorage.getItem(storageKey);
+        const parsed = stored ? JSON.parse(stored) : [];
+        if (Array.isArray(parsed)) restored = parsed;
       }
-    } else {
-      storageLoadedRef.current = true;
-    }
-  }, [chatModelId, chatInstanceId, storageKey]); // Remove activeCanvasId dependency
+    } catch { /* unavailable/corrupt storage */ }
+    setCanvases(restored);
+    setActiveCanvasId(restored[0]?.id || null);
+    setLoadedScope(storageKey);
+  }, [storageKey, chatInstanceId]);
 
   // Update legacy canvas state when active canvas changes - PREVENT INFINITE LOOP
   useEffect(() => {
     
+    if (loadedScope !== storageKey) return;
     if (activeCanvasId && canvases.length > 0) {
       const activeCanvas = canvases.find(c => c.id === activeCanvasId);
       if (activeCanvas) {
@@ -451,8 +451,8 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
 
   return {
     // New multi-canvas interface
-    canvases,
-    activeCanvasId,
+    canvases: loadedScope === storageKey ? canvases : [],
+    activeCanvasId: loadedScope === storageKey ? activeCanvasId : null,
     setCanvasesFromAPI,
     addCanvas,
     applyCanvasLiveUpdate,
@@ -460,8 +460,8 @@ export default function useCanvasHistory(chatModelId: string, chatInstanceId: st
     switchActiveCanvas,
     
     // Legacy single canvas interface (for backward compatibility)
-    canvas,
-    history,
+    canvas: loadedScope === storageKey ? canvas : { title: '', content: [] },
+    history: loadedScope === storageKey ? history : [],
     updateCanvas,
     updateLineRange,
     insertAtLine,

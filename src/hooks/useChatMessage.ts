@@ -22,6 +22,7 @@ import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useConversationSync } from "./chat/useConversationSync";
 import { useSocketHandler } from "./chat/useSocketHandler";
+import { restoreScopedChatHistory } from "../utils/restoreScopedChatHistory";
 import useChatInstance from "./useChatInstance";
 import { shouldMessageBeSent } from "../utils/messageUtils";
 import { useFileUpload } from "./fileUpload/useFileUpload";
@@ -78,10 +79,9 @@ export const useChatMessages = ({
   const finalApiUrl = config?.apiUrl || defaultApiUrl;
   const finalApiToken = config?.apiToken || "";
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
-  const storageKey = `chatInstanceId[${chatModelId}${isAdmin ? "-smartadmin" : "-standard"}]`;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const { chatInstanceId, setChatInstanceId, getNewInstance } = useChatInstance(
+  const { chatInstanceId, selectInstance, getNewInstance, storageKey, isChanging: isChangingInstance, error: instanceError, retry: retryChatSession } = useChatInstance(
     { chatModelId, lang, config, isAdmin: isAdmin, user }
   );
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
@@ -104,6 +104,21 @@ export const useChatMessages = ({
 
   // Track if canvases are currently being fetched to prevent concurrent requests
   const isFetchingCanvasesRef = useRef<boolean>(false);
+
+  const sendController = useRef<AbortController | null>(null);
+  const liveConversation = useRef(chatInstanceId);
+  liveConversation.current = chatInstanceId;
+  useEffect(() => {
+    sendController.current?.abort();
+    if (activeToolTimeoutRef.current) clearTimeout(activeToolTimeoutRef.current);
+    setTypingUsers([]);
+    setConversationStarters([]);
+    setActiveTool(null);
+    dispatch({ type: ChatActionTypes.SET_LOADING, payload: { isLoading: false } });
+    dispatch({ type: ChatActionTypes.UPDATE_SUGGESTIONS, payload: { suggestions: [] } });
+    dispatch({ type: ChatActionTypes.SET_CANVASES, payload: { canvases: [] } });
+    if (!chatInstanceId) dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: { chatInstanceId: '', messages: [], resetMessages: true } });
+  }, [chatInstanceId]);
 
   useEffect(() => {
     messagesCountRef.current = state.messages.length;
@@ -150,7 +165,7 @@ export const useChatMessages = ({
 
   useEffect(() => {
     if (chatInstanceId && state.messages.length > 0) {
-      cachedMessagesRef.current[chatInstanceId] = state.messages;
+      cachedMessagesRef.current[chatInstanceId] = state.messages.filter(message => message.chatInstanceId === chatInstanceId);
     }
   }, [chatInstanceId, state.messages]);
 
@@ -302,7 +317,7 @@ export const useChatMessages = ({
       const data = await response.json();
       
       // Only update if we got valid data
-      if (data && Array.isArray(data)) {
+      if (liveConversation.current === chatInstanceId && data && Array.isArray(data)) {
         canvasHistory.setCanvasesFromAPI(data);
         
         dispatch({
@@ -334,27 +349,9 @@ export const useChatMessages = ({
     if (!id) { await getNewInstance(); return; }
     if (id === chatInstanceId) return;
     clearError();
-    const saved = loadConversationHistory(id);
-    const messages = strictlyFilterMessagesByInstance(saved.messages || [], id);
-    dispatch({ type: ChatActionTypes.SET_MESSAGES, payload: {
-      chatInstanceId: id, messages, resetMessages: true,
-    } });
-    setChatTitle(saved.title || "");
-    setChatInstanceId(id);
-    localStorage.setItem(storageKey, id);
-  }, [chatInstanceId, getNewInstance, clearError, setChatInstanceId, storageKey]);
+    await selectInstance(id);
+  }, [chatInstanceId, getNewInstance, clearError, selectInstance]);
 
-  useEffect(() => {
-    if (chatInstanceId) return;
-    if (isAdmin) return;
-
-    const savedInstance = localStorage.getItem(storageKey);
-    if (savedInstance) {
-      setChatInstanceId(savedInstance);
-    } else {
-      getNewInstance();
-    }
-  }, []);
   useEffect(() => {
     if (!chatInstanceId) return;
 
@@ -392,74 +389,23 @@ export const useChatMessages = ({
     }
   }, [chatInstanceId]);
   
-  // Separate useEffect for loading conversations from localStorage - run only once
   useEffect(() => {
-    const loadConversationsFromStorage = () => {
-      const stored = localStorage.getItem(`chat-conversations-${chatModelId}`);
-      if (!stored) return;
-      
-      try {
-        let parsedConversations = JSON.parse(stored);
-        
-        // Ensure all conversations have proper ownership information
-        parsedConversations = parsedConversations.map((conv: any) => {
-          if (conv.messages && conv.messages.length > 0) {
-            const hasOwner = conv.messages.some((msg: any) => 
-              msg.user && (msg.user.id === 'anonymous' || msg.user.id === user?.id)
-            );
-            
-            if (!hasOwner) {
-              const ownerMessage = {
-                id: `system-owner-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                text: "Conversation ownership",
-                isSent: true,
-                chatInstanceId: conv.id,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                user: {
-                  id: user?.id || 'anonymous',
-                  email: user?.email || '',
-                  name: user?.name || 'User',
-                  image: user?.image || ''
-                }
-              };
-              
-              return {
-                ...conv,
-                messages: [ownerMessage, ...conv.messages]
-              };
-            }
-          }
-          
-          return conv;
+    if (!chatInstanceId) { setConversations([]); return; }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    setConversations([]);
+    void restoreScopedChatHistory({ storageKey, modelId: chatModelId, apiUrl: finalApiUrl,
+      apiToken: finalApiToken, token: user?.token, signal: controller.signal,
+      onProgress: restored => {
+        if (controller.signal.aborted) return;
+        setConversations(current => {
+          const seen = new Set(current.map(item => item.id));
+          return [...current, ...restored.filter(item => !seen.has(item.id))];
         });
-        
-        // Filter out conversations where the user hasn't sent any messages
-        parsedConversations = parsedConversations.filter((conv: any) => {
-          if (!conv.messages || conv.messages.length === 0) {
-            return false;
-          }
-          
-          return conv.messages.some((msg: any) => 
-            msg.isSent === true && 
-            msg.user && 
-            (msg.user.id === user?.id || msg.user.id === 'anonymous')
-          );
-        });
-        
-        setConversations(parsedConversations);
-      } catch (e) {
-        console.error("Error loading conversations:", e);
-      }
-    };
-    
-    // Load conversations only once at initialization
-    const initialLoadTimeout = setTimeout(() => {
-      loadConversationsFromStorage();
-    }, 0);
-    
-    return () => clearTimeout(initialLoadTimeout);
-  }, []); // Run only once when the component mounts
+      },
+    }).finally(() => clearTimeout(timeout));
+    return () => { clearTimeout(timeout); controller.abort(); };
+  }, [storageKey, chatInstanceId, finalApiUrl, finalApiToken, chatModelId, user?.token]);
 
   const debouncedTypingUsersUpdate = debounce((data: TypingUser) => {
     setTypingUsers((prev) => {
@@ -599,7 +545,12 @@ export const useChatMessages = ({
   );
 
   const onSend = async (messageText: string) => {
-    if (state.isLoading || !chatInstanceId) return;
+    if (!chatInstanceId || isChangingInstance) return;
+
+    if (state.isLoading || !chatInstanceId || (sendController.current && !sendController.current.signal.aborted)) return;
+    const controller = new AbortController();
+    sendController.current = controller;
+    const stillCurrent = () => !controller.signal.aborted && liveConversation.current === chatInstanceId;
     dispatch({
       type: ChatActionTypes.SET_LOADING,
       payload: { isLoading: true },
@@ -673,7 +624,7 @@ export const useChatMessages = ({
           }
         : {
             message: messageText,
-            messages: state.messages,
+            messages: chatInstanceId ? state.messages.filter(message => message.chatInstanceId === chatInstanceId) : [],
             chatInstanceId,
             chatModelId,
             lang,
@@ -683,8 +634,10 @@ export const useChatMessages = ({
         method: "POST",
         headers: headers,
         body: JSON.stringify(requestData),
+        signal: controller.signal,
       });
 
+      if (!stillCurrent()) return;
       if (!response.ok) {
         const { message, errorType, statusCode } = handleApiError(
           response.status,
@@ -697,6 +650,7 @@ export const useChatMessages = ({
       clearError();
 
       const data = await response.json();
+      if (!stillCurrent()) return;
       
       // Check if we got an AI response from the API and add it to history
       if (data.message) {
@@ -713,9 +667,12 @@ export const useChatMessages = ({
         });
       }
     } catch (error) {
+      if (!stillCurrent()) return;
       console.error("Error sending message:", error);
       showTemporaryToolState("Error", "error");
     } finally {
+      if (sendController.current === controller) sendController.current = null;
+      if (!stillCurrent()) return;
       dispatch({
         type: ChatActionTypes.SET_LOADING,
         payload: { isLoading: false },
@@ -749,7 +706,7 @@ export const useChatMessages = ({
       if (conversations.length === 0) {
         try {
           const stored = localStorage.getItem(
-            `chat-conversations-${chatModelId}`
+            `chat-conversations:${storageKey}`
           );
           if (stored) {
             const parsedConversations = JSON.parse(stored);
@@ -830,7 +787,7 @@ export const useChatMessages = ({
           const updated = [newConversationItem, ...prev];
 
           localStorage.setItem(
-            `chat-conversations-${chatModelId}`,
+            `chat-conversations:${storageKey}`,
             JSON.stringify(updated)
           );
 
@@ -847,7 +804,7 @@ export const useChatMessages = ({
           );
 
           localStorage.setItem(
-            `chat-conversations-${chatModelId}`,
+            `chat-conversations:${storageKey}`,
             JSON.stringify(updated)
           );
 
@@ -909,7 +866,7 @@ export const useChatMessages = ({
       setConversations((prev) => {
         const updated = [newConversation, ...prev];
         localStorage.setItem(
-          `chat-conversations-${chatModelId}`,
+          `chat-conversations:${storageKey}`,
           JSON.stringify(updated)
         );
         return updated;
@@ -1020,10 +977,10 @@ export const useChatMessages = ({
   }, [chatInstanceId, dispatch]);
 
   return {
-    messages: state.messages,
+    messages: chatInstanceId ? state.messages.filter(message => message.chatInstanceId === chatInstanceId) : [],
     notificationCount: state.notificationCount,
-    suggestions: state.suggestions,
-    canvases: state.canvases,
+    suggestions: chatInstanceId ? state.suggestions : [],
+    canvases: chatInstanceId ? canvasHistory.canvases : [],
     error: {
       message: error,
       type: errorType,
@@ -1079,7 +1036,10 @@ export const useChatMessages = ({
     },
     canvas: canvasHistory.canvas,
     canvasHistory,
-    isLoading: state.isLoading,
+    isLoading: state.isLoading || isChangingInstance || (!chatInstanceId && !instanceError),
+    instanceError,
+    retryChatSession,
+    isChangingInstance,
     onSend,
     selectConversation,
     updateChatTitle,
