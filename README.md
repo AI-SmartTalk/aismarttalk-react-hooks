@@ -563,53 +563,78 @@ interface CanvasFullContent {
 }
 ```
 
-## Release locale en une commande
+## Release SDK puis mise à jour frontend
 
-Depuis `aismarttalk-react-hooks`, après fusion des MR SDK et frontend sur leurs
-`main` respectifs :
+Après fusion de la MR SDK sur `main`, depuis `aismarttalk-react-hooks` :
 
 ```sh
 make release
 ```
 
-Les deux dépôts doivent être adjacents, sur `main`, sans changement local ni
-commit non poussé. Il faut Node 24+, npm, Git et GitHub CLI, une authentification
-`npm login` valide, `gh auth login` et l’accès Git en écriture aux deux dépôts.
-La commande fait un fetch/pull fast-forward, valide SDK et frontend avec
-l’archive candidate, pousse commit SDK + tag de manière atomique, publie sur npm,
-épingle la dépendance publiée dans le frontend, revalide et pousse le frontend,
-puis crée la release GitHub. npm peut demander un code 2FA dans le terminal.
-Aucune GitHub App, aucun secret Actions et aucun Trusted Publisher requis.
+La commande publie uniquement le SDK : fetch/pull fast-forward, tests, contrôle
+TypeScript, build, archive candidate, commit SDK + tag poussés de manière
+atomique, publication de cette archive sur npm, puis release GitHub. Le SDK
+doit être sur `main`, sans changement local ni commit non poussé. Le frontend
+peut rester sur sa branche de travail ; il n’est ni inspecté ni modifié par
+cette commande, et son dépôt n’a pas besoin d’être présent.
 
-**Le push du frontend sur main déclenche son déploiement existant.** Aucun push
-forcé : un concurrent ou un refus de permissions arrête la commande. Les push
-utilisent `--no-verify` puisque tests et builds sont déjà exécutés par la commande.
+Il faut Node 24+, npm, Git et GitHub CLI, une authentification `npm login`
+valide, `gh auth login` et l’accès Git en écriture au SDK. npm peut demander
+un code 2FA dans le terminal. Aucune GitHub App, aucun secret Actions et
+aucun Trusted Publisher requis.
 
 ```sh
-make release DRY_RUN=1       # afficher le plan, sans commit/push/publication
+make release DRY_RUN=1       # afficher le plan sans commit/push/publication
 make release BUMP=minor     # patch par défaut ; minor ou major au choix
 make release VERSION=1.7.0  # choisir explicitement une version stable supérieure
 ```
 
 Si `package.json` prépare déjà une version supérieure à npm, le mode patch la
-publie telle quelle ; sinon il calcule le prochain patch. La première release
-préparée est donc 1.6.2, pas 1.6.3. Le changelog est généré depuis le dernier tag.
+publie telle quelle ; sinon il calcule le prochain patch. Le changelog est
+généré depuis le dernier tag.
 
-L’état et l’archive validée sont conservés dans `.git/aist-local-release` jusqu’au
-succès complet. En cas d’échec, corriger la cause puis relancer **la même commande** :
-elle reprend la même version, vérifie l’intégrité npm et évite une double
-publication. Ne pas modifier les fichiers de release pendant cette reprise.
-Si le SDK a depuis avancé vers une version supérieure, que le commit enregistré
-appartient toujours à son historique et que les deux dépôts sont propres sur
-`main`, la commande archive automatiquement l’ancien état et son archive dans
-`.git/aist-local-release.backup-<version>-<timestamp>`, puis prépare une nouvelle
-release. Le mode `DRY_RUN=1` affiche la nouvelle version sans déplacer l’état.
-Sinon, une modification étrangère, un autre commit ou une archive différente
-arrête la reprise. Ne pas supprimer un état après publication ; cela ferait
-perdre la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que le
-processus est terminé avant de retirer uniquement le verrou
-`.git/aist-local-release.lock`. Les fichiers préparés restent disponibles en
-cas d’échec avant publication pour inspection et correction.
+Une fois la version disponible sur npm, sélectionner la branche souhaitée
+dans le dépôt adjacent `chatbot-front`, puis, depuis le SDK :
+
+```sh
+make update-chatbot-front                # version du package.json SDK
+make update-chatbot-front VERSION=1.7.0  # version npm explicite
+make update-chatbot-front DRY_RUN=1      # afficher le plan sans mutation
+```
+
+Cette commande installe la version npm exacte, vérifie le manifest, le lockfile
+et l’intégrité de l’archive, exécute les tests frontend, TypeScript et les builds
+widget standard et embed, puis commite `package.json` et `package-lock.json` et
+pousse **la branche frontend courante** sur `origin`. Elle ne change pas de
+branche et ne crée ni ne fusionne de MR. Les modifications locales doivent
+être commitées avant la commande. Une version non publiée ou un retour vers
+une version plus ancienne est refusé avant l’installation.
+
+La MR frontend peut ainsi utiliser la nouvelle version publiée et passer sa CI
+avant sa fusion. **Un push du frontend sur `main` déclenche son déploiement
+existant.** Aucun push forcé ; les push utilisent `--no-verify` puisque les
+tests et builds sont déjà exécutés par les commandes.
+
+L’état et l’archive SDK validée sont conservés dans `.git/aist-local-release`
+jusqu’au succès complet. En cas d’échec, corriger la cause puis relancer
+`make release` : la commande reprend la même version, vérifie l’intégrité npm
+et évite une double publication. Ne pas modifier les fichiers de release
+pendant cette reprise. Si le SDK a avancé vers une version supérieure commitée,
+que le commit enregistré appartient toujours à son historique et que le SDK
+est propre sur `main`, l’ancien état est automatiquement archivé dans
+`.git/aist-local-release.backup-<version>-<timestamp>` avant une nouvelle release.
+Le mode simulation ne déplace pas l’état.
+
+Les états de l’ancien workflow combiné sont repris pour le SDK uniquement ;
+leurs sauvegardes frontend sont archivées à la fin sans toucher au frontend.
+Une mise à jour frontend interrompue conserve son état dans le dossier Git du
+frontend, sous `aist-frontend-updates`, par branche et version. Relancer la
+même commande sur la même branche reprend la mise à jour sans recréer un
+commit déjà effectué. Les changements étrangers restent protégés.
+
+Après un arrêt brutal, vérifier que le processus est terminé avant de retirer
+uniquement le verrou `.git/aist-local-release.lock` dans le SDK ou
+`.git/aist-frontend-update.lock` dans le frontend.
 
 ### Web conversation lifecycle (1.6.4)
 

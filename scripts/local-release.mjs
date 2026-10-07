@@ -7,12 +7,11 @@ import { assertArtifact, assertWorkspace, compareVersions, nextVersion } from '.
 import { packageName, registry } from './release-policy.mjs';
 
 const sdk = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const frontend = resolve(sdk, '../chatbot-front');
 const output = (command, args, cwd = sdk) => execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] }).trim();
 const run = (command, args, cwd = sdk) => execFileSync(command, args, { cwd, stdio: 'inherit' });
 const git = (args, cwd = sdk) => output('git', args, cwd);
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
-const owned = { sdk: ['package.json', 'package-lock.json', 'CHANGELOG.md'], frontend: ['package.json', 'package-lock.json'] };
+const owned = ['package.json', 'package-lock.json', 'CHANGELOG.md'];
 const gitDir = git(['rev-parse', '--absolute-git-dir']);
 const stateDir = join(gitDir, 'aist-local-release');
 const statePath = join(stateDir, 'state.json');
@@ -33,24 +32,20 @@ function workspace(cwd, paths = []) {
   assertWorkspace(git(['branch', '--show-current'], cwd), execFileSync('git', ['status', '--porcelain'], { cwd, encoding: 'utf8' }).trimEnd(), paths);
 }
 function snapshot() {
-  for (const [name, cwd] of [['sdk', sdk], ['frontend', frontend]]) {
-    state.files[name] = Object.fromEntries(owned[name].map(path => [path,
-      existsSync(join(cwd, path)) ? createHash('sha256').update(readFileSync(join(cwd, path))).digest('hex') : null]));
-  }
+  state.files.sdk = Object.fromEntries(owned.map(path => [path,
+    existsSync(join(sdk, path)) ? createHash('sha256').update(readFileSync(join(sdk, path))).digest('hex') : null]));
   save();
 }
 function assertResume() {
-  for (const [name, cwd] of [['sdk', sdk], ['frontend', frontend]]) {
-    workspace(cwd, owned[name]);
-    for (const [path, expected] of Object.entries(state.files[name])) {
-      const actual = existsSync(join(cwd, path)) ? createHash('sha256').update(readFileSync(join(cwd, path))).digest('hex') : null;
-      if (actual !== expected) throw new Error(`Fichier modifié depuis l'arrêt de la release : ${name}/${path}`);
-    }
-    const head = git(['rev-parse', 'HEAD'], cwd);
-    if (head !== state.heads[name] && (git(['log', '-1', '--format=%s'], cwd) !== state.commitMessages[name]
-      || git(['rev-parse', 'HEAD^'], cwd) !== state.heads[name])) {
-      throw new Error(`La branche main de ${name} a changé depuis la préparation ; résolution manuelle requise`);
-    }
+  workspace(sdk, owned);
+  for (const [path, expected] of Object.entries(state.files.sdk)) {
+    const actual = existsSync(join(sdk, path)) ? createHash('sha256').update(readFileSync(join(sdk, path))).digest('hex') : null;
+    if (actual !== expected) throw new Error(`Fichier modifié depuis l'arrêt de la release : sdk/${path}`);
+  }
+  const head = git(['rev-parse', 'HEAD']);
+  if (head !== state.heads.sdk && (git(['log', '-1', '--format=%s']) !== state.commitMessages.sdk
+    || git(['rev-parse', 'HEAD^']) !== state.heads.sdk)) {
+    throw new Error('La branche main du SDK a changé depuis la préparation ; résolution manuelle requise');
   }
 }
 function superseded(pending) {
@@ -58,17 +53,10 @@ function superseded(pending) {
   // Only retire an older release when committed work has advanced from it.
   try { git(['merge-base', '--is-ancestor', pending.heads.sdk, 'HEAD']); }
   catch { return false; }
-  workspace(sdk); workspace(frontend);
+  workspace(sdk);
   return true;
 }
 function mutation(action) { try { action(); } finally { snapshot(); } }
-function validateFrontend() {
-  run('npm', ['test', '--', '--runInBand'], frontend);
-  run('node', ['--test', 'scripts/update-chat-hooks.test.mjs'], frontend);
-  run('npx', ['tsc', '--noEmit'], frontend);
-  for (const entry of ['embedIndex', 'index']) run('npx', ['webpack', '--env', 'chatModelId=universal', '--env',
-    `entryPoint=./src/client/${entry}.tsx`, '--env', `outputFileName=${entry === 'embedIndex' ? 'chatbot-embed-universal.js' : 'chatbot-universal.js'}`, '--mode', 'production'], frontend);
-}
 function commit(cwd, files, message) {
   if (!git(['diff', '--name-only', 'HEAD', '--', ...files], cwd)) return;
   run('git', ['add', '--', ...files], cwd);
@@ -76,14 +64,13 @@ function commit(cwd, files, message) {
 }
 
 async function release() {
-  if (!existsSync(join(frontend, 'package.json'))) throw new Error('Le dépôt chatbot-front doit être adjacent au SDK');
   const latest = await metadata();
   const pending = existsSync(statePath) ? readJson(statePath) : null;
   const obsolete = pending && superseded(pending);
   if (process.env.RELEASE_DRY_RUN === '1') {
     const version = pending && !obsolete ? pending.version
       : nextVersion(readJson(join(sdk, 'package.json')).version, latest.version, process.env.RELEASE_BUMP || 'patch', process.env.RELEASE_VERSION || '');
-    console.log(`Plan sans mutation : SDK ${version}, frontend épinglé à ${version}.\nmain propres et à jour → tests/build SDK → test frontend avec l'archive candidate → commit/tag/push SDK → npm publish → dépendance npm frontend → tests/build frontend → commit/push frontend → release GitHub.\nUn push frontend sur main déclenche son déploiement existant. Aucun publish/push exécuté par ce mode.`);
+    console.log(`Plan sans mutation : SDK ${version}.\nmain propre et à jour → tests/build SDK → archive candidate → commit/tag/push SDK → npm publish → release GitHub.\nEnsuite : make update-chatbot-front VERSION=${version} pour mettre à jour la branche frontend courante. Aucun publish/push exécuté par ce mode.`);
     return;
   }
   if (obsolete) {
@@ -96,37 +83,30 @@ async function release() {
     if (process.env.RELEASE_VERSION && process.env.RELEASE_VERSION !== state.version) throw new Error('Terminer la release en cours avant de changer VERSION');
     console.log(`Reprise de la release ${state.version}, phase ${state.phase}`);
   } else {
-    workspace(sdk); workspace(frontend);
+    workspace(sdk);
   }
   // Verify both authentication paths before modifying release files.
   try { output('npm', ['whoami', `--registry=${registry}/`]); }
   catch { throw new Error('Authentification npm manquante : lancer npm login puis relancer make release'); }
   run('gh', ['auth', 'status']);
   if (!state) {
-    for (const cwd of [sdk, frontend]) {
-      run('git', ['fetch', 'origin', 'main', '--tags'], cwd);
-      run('git', ['pull', '--ff-only', 'origin', 'main'], cwd);
-      workspace(cwd);
-      if (git(['rev-parse', 'HEAD'], cwd) !== git(['rev-parse', 'origin/main'], cwd)) throw new Error('Les commits locaux doivent être poussés/revus avant la release');
-    }
+    run('git', ['fetch', 'origin', 'main', '--tags']);
+    run('git', ['pull', '--ff-only', 'origin', 'main']);
+    workspace(sdk);
+    if (git(['rev-parse', 'HEAD']) !== git(['rev-parse', 'origin/main'])) throw new Error('Les commits locaux doivent être poussés/revus avant la release');
     const current = readJson(join(sdk, 'package.json'));
     if (current.name !== packageName) throw new Error('Dépôt SDK inattendu');
     const published = await metadata();
     const version = nextVersion(current.version, published.version, process.env.RELEASE_BUMP || 'patch', process.env.RELEASE_VERSION || '');
-    const frontVersion = readJson(join(frontend, 'package-lock.json')).packages[`node_modules/${packageName}`]?.version;
-    if (!frontVersion || compareVersions(frontVersion, version) > 0) throw new Error('Le frontend utilise un SDK plus récent ou non verrouillé');
     if (await metadata(version)) throw new Error(`La version ${version} est déjà publiée`);
     if (git(['tag', '--list', `v${version}`])) throw new Error(`Le tag v${version} existe déjà sans état de reprise local`);
     mkdirSync(stateDir, { recursive: true });
-    for (const path of owned.frontend) writeFileSync(join(stateDir, `frontend-${path}`), readFileSync(join(frontend, path)));
-    state = { version, phase: 'preparation', prepared: false,
-      heads: { sdk: git(['rev-parse', 'HEAD']), frontend: git(['rev-parse', 'HEAD'], frontend) }, files: {},
-      commitMessages: { sdk: `chore(release): publier SDK ${version}`, frontend: `chore(deps): mettre à jour le SDK chat vers ${version}` } };
+    state = { workflow: 'sdk-only', version, phase: 'preparation', prepared: false,
+      heads: { sdk: git(['rev-parse', 'HEAD']) }, files: {},
+      commitMessages: { sdk: `chore(release): publier SDK ${version}` } };
     snapshot();
   }
   if (!state.prepared) {
-    // Restore only files still matching the recorded release-owned hashes.
-    mutation(() => { for (const path of owned.frontend) writeFileSync(join(frontend, path), readFileSync(join(stateDir, `frontend-${path}`))); });
     mutation(() => run('npm', ['version', state.version, '--allow-same-version', '--no-git-tag-version', '--ignore-scripts']));
     run('npm', ['ci']);
     run('npm', ['test', '--', '--runInBand']);
@@ -145,16 +125,13 @@ async function release() {
     state.archive = join(stateDir, packed[0].filename);
     state.integrity = `sha512-${createHash('sha512').update(readFileSync(state.archive)).digest('base64')}`;
     save();
-    mutation(() => run('npm', ['install', '--save-exact', '--ignore-scripts', '--no-audit', '--no-fund', state.archive], frontend));
-    validateFrontend();
-    mutation(() => { for (const path of owned.frontend) writeFileSync(join(frontend, path), readFileSync(join(stateDir, `frontend-${path}`))); });
     state.prepared = true; state.phase = 'sdk'; save();
   }
   if (`sha512-${createHash('sha512').update(readFileSync(state.archive)).digest('base64')}` !== state.integrity) {
     throw new Error('Archive candidate modifiée depuis sa validation ; publication arrêtée');
   }
   // An interrupted commit/tag/push may safely be repeated; never force-push.
-  commit(sdk, owned.sdk, state.commitMessages.sdk);
+  commit(sdk, owned, state.commitMessages.sdk);
   state.heads.sdk = git(['rev-parse', 'HEAD']); save();
   const tag = `v${state.version}`;
   if (git(['tag', '--list', tag])) {
@@ -173,25 +150,15 @@ async function release() {
     if (!published) throw new Error('Publication envoyée ; attendre sa visibilité npm puis relancer make release');
   }
   assertArtifact(published, state.version, state.integrity);
-  state.phase = 'frontend'; save();
-  const dependency = readJson(join(frontend, 'package.json')).dependencies[packageName];
-  const lockVersion = readJson(join(frontend, 'package-lock.json')).packages[`node_modules/${packageName}`]?.version;
-  if (dependency !== state.version || lockVersion !== state.version) {
-    mutation(() => run('npm', ['install', '--save-exact', '--ignore-scripts', '--no-audit', '--no-fund', `${packageName}@${state.version}`], frontend));
-  }
-  const locked = readJson(join(frontend, 'package-lock.json')).packages[`node_modules/${packageName}`];
-  if (locked?.integrity !== state.integrity) throw new Error('Le lockfile frontend référence une archive SDK différente');
-  validateFrontend();
-  commit(frontend, owned.frontend, state.commitMessages.frontend);
-  state.heads.frontend = git(['rev-parse', 'HEAD'], frontend); save();
-  run('git', ['push', '--no-verify', 'origin', 'main'], frontend);
   state.phase = 'github'; save();
   let releaseExists = false;
   try { output('gh', ['release', 'view', tag, '--json', 'tagName']); releaseExists = true; }
   catch (error) { if (!/release not found|HTTP 404/i.test(String(error.stderr))) throw error; }
   if (!releaseExists) run('gh', ['release', 'create', tag, '--verify-tag', '--title', `SDK ${state.version}`, '--generate-notes']);
-  console.log(`Release ${state.version} publiée ; SDK, tag, release GitHub et frontend poussés sur main.`);
-  rmSync(stateDir, { recursive: true });
+  console.log(`Release SDK ${state.version} publiée : npm, tag et release GitHub.\nFrontend : make update-chatbot-front VERSION=${state.version}`);
+  // Preserve backups from the former combined workflow without touching the frontend.
+  if (state.files.frontend) renameSync(stateDir, `${stateDir}.backup-${state.version}-${Date.now()}`);
+  else rmSync(stateDir, { recursive: true });
 }
 
 try {
