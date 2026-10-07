@@ -42,11 +42,11 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
   const store = (key: string, id: string) => { try { localStorage.setItem(key, id); } catch { /* Storage may be unavailable */ } };
 
-  const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false): Promise<string | null> => {
+  const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true): Promise<string | null> => {
     const identity = overrideUser || user;
     const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity, isAdmin);
     const epoch = context.current.epoch;
-    const key = JSON.stringify([scope, identity?.token, requestedId || '', fresh]);
+    const key = JSON.stringify([scope, identity?.token, requestedId || '', fresh, publish]);
     if (pending.current?.key === key && !pending.current.controller.signal.aborted) return pending.current.promise;
     pending.current?.controller.abort();
     const controller = new AbortController();
@@ -66,6 +66,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
       try {
         const previousScope = `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
         const saved = fresh ? null : requestedId || read(scope) || read(previousScope) || read(legacyKey);
+        let resuming = Boolean(saved);
         let response = isAdmin && saved
           ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
           : await post(saved || undefined);
@@ -73,7 +74,8 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           const failure = await response.json().catch(() => ({}));
           // Only a missing/unowned instance permits a fresh conversation. An
           // expired identity, ban, quota refusal or outage must not be bypassed.
-          if (response.status === 404 || (response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED')) {
+          if (publish && (response.status === 404 || (response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED'))) {
+            resuming = false;
             response = await post();
           } else throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code });
         }
@@ -81,8 +83,16 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
         const data = await response.json();
         if (isAdmin && saved && !data.chatInstanceId) data.chatInstanceId = saved;
         if (typeof data.chatInstanceId !== 'string' || !data.chatInstanceId) throw new Error('Chat instance response is missing its ID');
+        // A resume response is an admission of this exact conversation, not a
+        // creation. Fail closed against older/incompatible API deployments.
+        if (resuming && data.chatInstanceId !== saved) {
+          throw Object.assign(new Error('Server returned a different conversation during resume'), { code: 'CONVERSATION_RESUME_MISMATCH' });
+        }
         if (!current()) return null;
-        store(scope, data.chatInstanceId);
+        // Receiving a storage event must not publish it back to other tabs.
+        // Late events and responses must not override a newer shared selection.
+        if (!publish && read(scope) !== requestedId) return null;
+        if (publish) store(scope, data.chatInstanceId);
         // Legacy storage is never written again; each identity has its own key.
         try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
         if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
@@ -117,11 +127,13 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   // Cross-tab instance selection stays scoped to the active identity.
   useEffect(() => {
     const listener = (event: StorageEvent) => {
-      if (event.key === storageKey && event.newValue && event.newValue !== active.id) void selectInstance(event.newValue);
+      if (event.key === storageKey && event.newValue && event.newValue !== active.id && read(storageKey) === event.newValue) {
+        void resolve(undefined, event.newValue, false, false);
+      }
     };
     window.addEventListener('storage', listener);
     return () => window.removeEventListener('storage', listener);
-  }, [storageKey, active.id, selectInstance]);
+  }, [storageKey, active.id, resolve]);
 
   return { chatInstanceId: active.scope === storageKey ? active.id : '', getNewInstance, selectInstance,
     setChatInstanceId: selectInstance, error, isChanging: changing, retry: resolve,
