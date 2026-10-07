@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertArtifact, assertWorkspace, compareVersions, nextVersion } from './local-release-policy.mjs';
@@ -53,6 +53,14 @@ function assertResume() {
     }
   }
 }
+function superseded(pending) {
+  if (compareVersions(readJson(join(sdk, 'package.json')).version, pending.version) <= 0) return false;
+  // Only retire an older release when committed work has advanced from it.
+  try { git(['merge-base', '--is-ancestor', pending.heads.sdk, 'HEAD']); }
+  catch { return false; }
+  workspace(sdk); workspace(frontend);
+  return true;
+}
 function mutation(action) { try { action(); } finally { snapshot(); } }
 function validateFrontend() {
   run('npm', ['test', '--', '--runInBand'], frontend);
@@ -70,11 +78,18 @@ function commit(cwd, files, message) {
 async function release() {
   if (!existsSync(join(frontend, 'package.json'))) throw new Error('Le dépôt chatbot-front doit être adjacent au SDK');
   const latest = await metadata();
+  const pending = existsSync(statePath) ? readJson(statePath) : null;
+  const obsolete = pending && superseded(pending);
   if (process.env.RELEASE_DRY_RUN === '1') {
-    const version = existsSync(statePath) ? readJson(statePath).version
+    const version = pending && !obsolete ? pending.version
       : nextVersion(readJson(join(sdk, 'package.json')).version, latest.version, process.env.RELEASE_BUMP || 'patch', process.env.RELEASE_VERSION || '');
     console.log(`Plan sans mutation : SDK ${version}, frontend épinglé à ${version}.\nmain propres et à jour → tests/build SDK → test frontend avec l'archive candidate → commit/tag/push SDK → npm publish → dépendance npm frontend → tests/build frontend → commit/push frontend → release GitHub.\nUn push frontend sur main déclenche son déploiement existant. Aucun publish/push exécuté par ce mode.`);
     return;
+  }
+  if (obsolete) {
+    const archived = `${stateDir}.backup-${pending.version}-${Date.now()}`;
+    renameSync(stateDir, archived);
+    console.log(`Ancienne release ${pending.version} dépassée par la version locale ; état archivé dans ${archived}. Nouvelle release.`);
   }
   if (existsSync(statePath)) {
     state = readJson(statePath); assertResume();
