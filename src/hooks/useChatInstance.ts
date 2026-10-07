@@ -96,9 +96,9 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           if (!response.ok && saved && !isAdmin) {
             const failure = await response.json().catch(() => ({}));
             // Access loss is a locked selection, never an implicit new thread.
-            throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, conversationId: saved });
+            throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason, conversationId: saved });
           }
-          if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code }); }
+          if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason }); }
           const data = await response.json();
           if (isAdmin && saved && !data.chatInstanceId) data.chatInstanceId = saved;
           if (typeof data.chatInstanceId !== 'string' || !data.chatInstanceId) throw new Error('Chat instance response is missing its ID');

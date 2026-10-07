@@ -260,3 +260,10 @@ it('never claims a new visitor conversation received from another tab with an ol
   expect(body).toMatchObject({ chatInstanceId: 'new-guest', resumeOnly: true });
   expect(body.claimAnonymous).toBeUndefined();
 });
+
+it.each(['LOGIN_REQUIRED', 'SESSION_EXPIRED', 'CONVERSATION_LOGIN_REQUIRED'])('preserves the server authentication reason for correct recovery (%s)', async reason => {
+  request.mockResolvedValue({ok:false,status:401,json:async()=>({code:'AUTH_REQUIRED',reason})});
+  const {result}=renderHook(()=>useChatInstance(base));
+  await waitFor(()=>expect(result.current.error).toMatchObject({status:401,code:'AUTH_REQUIRED',reason}));
+  expect(request).toHaveBeenCalledTimes(1);
+});
