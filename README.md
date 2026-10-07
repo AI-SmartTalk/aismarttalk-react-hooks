@@ -599,9 +599,14 @@ L’état et l’archive validée sont conservés dans `.git/aist-local-release`
 succès complet. En cas d’échec, corriger la cause puis relancer **la même commande** :
 elle reprend la même version, vérifie l’intégrité npm et évite une double
 publication. Ne pas modifier les fichiers de release pendant cette reprise.
-Une modification étrangère, un autre commit ou une archive différente arrête
-le processus. Ne pas supprimer un état après publication ; cela ferait perdre
-la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que le
+Si le SDK a depuis avancé vers une version supérieure, que le commit enregistré
+appartient toujours à son historique et que les deux dépôts sont propres sur
+`main`, la commande archive automatiquement l’ancien état et son archive dans
+`.git/aist-local-release.backup-<version>-<timestamp>`, puis prépare une nouvelle
+release. Le mode `DRY_RUN=1` affiche la nouvelle version sans déplacer l’état.
+Sinon, une modification étrangère, un autre commit ou une archive différente
+arrête la reprise. Ne pas supprimer un état après publication ; cela ferait
+perdre la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que le
 processus est terminé avant de retirer uniquement le verrou
 `.git/aist-local-release.lock`. Les fichiers préparés restent disponibles en
 cas d’échec avant publication pour inspection et correction.
