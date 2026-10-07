@@ -267,3 +267,38 @@ it.each(['LOGIN_REQUIRED', 'SESSION_EXPIRED', 'CONVERSATION_LOGIN_REQUIRED'])('p
   await waitFor(()=>expect(result.current.error).toMatchObject({status:401,code:'AUTH_REQUIRED',reason}));
   expect(request).toHaveBeenCalledTimes(1);
 });
+
+it('replaces only an inaccessible legacy visitor with a fresh proven conversation', async () => {
+  localStorage.setItem('chatInstanceId[assistant-standard]', 'legacy-guest');
+  request.mockResolvedValueOnce(refusal(403, 'CONVERSATION_ACCESS_DENIED'))
+    .mockResolvedValueOnce({ ...response('fresh'), json: async () => ({ chatInstanceId: 'fresh', visitorToken: 'proof' }) });
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('fresh'));
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(request.mock.calls[1][1].body).chatInstanceId).toBeUndefined();
+  expect(localStorage.getItem('chatInstanceId[assistant-standard]')).toBeNull();
+  expect(localStorage.getItem('chatVisitorToken:v1:fresh')).toBe('proof');
+});
+it.each([[401, 'AUTH_REQUIRED'], [403, 'BANNED'], [503, 'UNAVAILABLE']])('does not migrate a legacy guest on auth, ban or outage (%s)', async (status, code) => {
+  localStorage.setItem('chatInstanceId[assistant-standard]', 'legacy');
+  request.mockResolvedValue(refusal(status as number, code as string));
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem('chatInstanceId[assistant-standard]')).toBe('legacy');
+});
+
+it('keeps a legacy account refusal locked without automatic creation', async () => {
+  localStorage.setItem('chatInstanceId[assistant-standard]', 'legacy-account');
+  request.mockResolvedValue(refusal(403, 'CONVERSATION_ACCESS_DENIED'));
+  const { result } = renderHook(() => useChatInstance({ ...base, user: account }));
+  await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+  expect(request).toHaveBeenCalledTimes(1);
+});
+it('keeps a modern visitor selection locked instead of silently discarding it', async () => {
+  localStorage.setItem(key(anonymous), 'modern');
+  request.mockResolvedValue(refusal(403, 'CONVERSATION_ACCESS_DENIED'));
+  const { result } = renderHook(() => useChatInstance({ ...base, user: anonymous }));
+  await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+  expect(request).toHaveBeenCalledTimes(1);
+});
