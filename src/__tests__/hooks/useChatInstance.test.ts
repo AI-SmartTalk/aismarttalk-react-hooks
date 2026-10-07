@@ -124,6 +124,7 @@ it('validates a cross-tab selection before accepting it', async () => {
   const { result } = renderHook(() => useChatInstance(base));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
   request.mockResolvedValue(response('selected'));
+  localStorage.setItem(key(), 'selected');
   act(() => { window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'selected' })); });
   await waitFor(() => expect(result.current.chatInstanceId).toBe('selected'));
 });
@@ -131,4 +132,58 @@ it('validates a cross-tab selection before accepting it', async () => {
 it('initializes under React StrictMode after the first effect is aborted', async () => {
   const { result } = renderHook(() => useChatInstance(base), { wrapper: React.StrictMode });
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+});
+
+it('rejects an incompatible API resume response without publishing or retrying', async () => {
+  localStorage.setItem(key(), 'owned');
+  request.mockResolvedValue(response('unexpected-new'));
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.error).toMatchObject({ code: 'CONVERSATION_RESUME_MISMATCH' }));
+  expect(result.current.chatInstanceId).toBe('');
+  expect(localStorage.getItem(key())).toBe('owned');
+  expect(request).toHaveBeenCalledTimes(1);
+});
+it('adopts a shared selection without echoing it to other tabs', async () => {
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  localStorage.setItem(key(), 'shared');
+  (localStorage.setItem as jest.Mock).mockClear();
+  request.mockResolvedValue(response('shared'));
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'shared' })));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('shared'));
+  expect(localStorage.setItem).not.toHaveBeenCalled();
+});
+it('ignores queued storage events superseded by a newer selection', async () => {
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  localStorage.setItem(key(), 'latest');
+  request.mockClear().mockResolvedValue(response('latest'));
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'stale' })));
+  expect(request).not.toHaveBeenCalled();
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'latest' })));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('latest'));
+  expect(request).toHaveBeenCalledTimes(1);
+});
+it('does not accept a storage resume that finishes after a newer selection', async () => {
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  let finish!: (data: any) => void;
+  request.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  localStorage.setItem(key(), 'first');
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'first' })));
+  localStorage.setItem(key(), 'newer');
+  await act(async () => { finish(response('first')); });
+  expect(result.current.chatInstanceId).toBe('created');
+  expect(localStorage.getItem(key())).toBe('newer');
+});
+
+it('does not create in response to an inaccessible cross-tab selection', async () => {
+  const { result } = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  localStorage.setItem(key(), 'unowned');
+  request.mockClear().mockResolvedValue(refusal(403, 'CONVERSATION_ACCESS_DENIED'));
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'unowned' })));
+  await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(result.current.chatInstanceId).toBe('created');
 });
