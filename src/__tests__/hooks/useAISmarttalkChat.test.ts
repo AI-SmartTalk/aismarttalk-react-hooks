@@ -6,7 +6,7 @@ import useUser from '../../hooks/useUser';
 import { useChatModel } from '../../hooks/useChatModel';
 
 // Mock dependencies
-jest.mock('../../hooks/useChatInstance');
+jest.mock('../../hooks/useChatInstance', () => ({ ...jest.requireActual('../../hooks/useChatInstance'), useChatInstance: jest.fn() }));
 jest.mock('../../hooks/useChatMessage');
 jest.mock('../../hooks/useUser');
 jest.mock('../../hooks/useChatModel');
@@ -78,6 +78,14 @@ describe('useAISmarttalkChat', () => {
       updateChatTitle: mockUpdateChatTitle,
       createNewChat: mockCreateNewChat
     });
+  });
+
+  it('isolates preview authentication from the ordinary widget', () => {
+    renderHook(() => useAISmarttalkChat({chatModelId:'model-123',config:{apiUrl:'https://api.example.test',storageNamespace:'admin-preview'}}));
+    const previewKey = (useUser as jest.Mock).mock.calls.at(-1)[1];
+    expect(previewKey).toContain('admin-preview');
+    renderHook(() => useAISmarttalkChat({chatModelId:'model-123',config:{apiUrl:'https://api.example.test'}}));
+    expect((useUser as jest.Mock).mock.calls.at(-1)[1]).not.toBe(previewKey);
   });
 
   it('should return all expected properties', () => {

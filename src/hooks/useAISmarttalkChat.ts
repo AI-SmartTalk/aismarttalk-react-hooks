@@ -1,3 +1,5 @@
+import { defaultApiUrl } from "../types/config";
+import { chatActiveSelectionKey } from "./useChatInstance";
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { ChatConfig, defaultFeatures } from "../types/chatConfig";
 import { ChatModel } from "../types/chatModel";
@@ -122,7 +124,7 @@ export const useAISmarttalkChat = ({
   }, [logger, chatModelId, lang, config, debug]);
 
   const { user, setUser, updateUserFromLocalStorage, logout, initialUser } =
-    useUser(config?.user);
+    useUser(config?.user, `chatUser:v2:${chatActiveSelectionKey(config?.apiUrl || defaultApiUrl, chatModelId, false, config?.storageNamespace)}`);
 
   useEffect(() => {
     logger.log("User state changed:", {
@@ -169,6 +171,7 @@ export const useAISmarttalkChat = ({
     canvases,
     selectConversation,
     socketStatus,
+    subscribeToConversationEvent,
     typingUsers,
     conversationStarters,
     activeTool,
@@ -181,6 +184,9 @@ export const useAISmarttalkChat = ({
     suggestions,
     updateChatTitle,
     createNewChat,
+    instanceError,
+    beginAnonymousSession,
+    retryChatSession,
     uploadFile,
     promoteToKnowledge,
     isUploading,
@@ -283,17 +289,11 @@ export const useAISmarttalkChat = ({
       }
 
       logger.log("Executing logout");
+      beginAnonymousSession();
       logout();
 
-      logger.log("Creating new conversation for anonymous user");
-      const newChatId = await createNewChat(initialUser);
-      logger.log("Created new chat ID:", newChatId);
-
-      if (newChatId) {
-        logger.log("Selecting new conversation");
-        await selectConversation(newChatId);
-      }
-
+      // Instance restoration belongs to useChatInstance, which reacts to the
+      // anonymous identity. Do not race a second creator against that effect.
       logger.log("Logout process complete");
       logger.groupEnd();
     } catch (error) {
@@ -305,7 +305,7 @@ export const useAISmarttalkChat = ({
       );
       logger.groupEnd();
     }
-  }, [logout, createNewChat, selectConversation, chatInstanceId, user, logger]);
+  }, [logout, beginAnonymousSession, chatInstanceId, user, logger]);
 
   const onSendWithLogging = useCallback(
     (messageText: string) => {
@@ -327,6 +327,8 @@ export const useAISmarttalkChat = ({
   return {
     chatInstanceId,
     createNewChat,
+    sessionError: instanceError,
+    retryChatSession,
     selectConversation,
     updateChatTitle,
     canvases,
@@ -335,11 +337,13 @@ export const useAISmarttalkChat = ({
     setUser,
     updateUserFromLocalStorage,
     logout: handleLogout,
+    beginAnonymousSession,
 
     messages,
     onSend: onSendWithLogging,
     isLoading,
     socketStatus,
+    subscribeToConversationEvent,
     typingUsers,
     conversationStarters,
     suggestions,

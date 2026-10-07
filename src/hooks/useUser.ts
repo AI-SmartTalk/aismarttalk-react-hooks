@@ -99,34 +99,39 @@ function isValidAuthenticatedUser(user: User): boolean {
  * @param initialUserOverride - Optional user object to override the default initial user
  * @returns An object containing the current user, a setter function, a method to update from localStorage, and the initial user.
  */
-export default function useUser(initialUserOverride?: User) {
+export default function useUser(initialUserOverride?: User, storageKey = 'user') {
   // Use initialUserOverride if provided, otherwise try localStorage, finally fall back to initialUser
-  const [user, setUserState] = useState<User>(() => {
+  const readInitialUser = () => {
     if (initialUserOverride) {
       return initialUserOverride;
     }
 
     if (typeof window !== "undefined") {
-      const storedUser = localStorage.getItem("user");
+      const storedUser = localStorage.getItem(storageKey);
       if (storedUser) {
         try {
           const parsedUser: User = JSON.parse(storedUser);
+          if (parsedUser.id === initialUser.id) return initialUser;
           if (isValidAuthenticatedUser(parsedUser)) {
             return parsedUser;
           }
           // Clean up invalid user data IMMEDIATELY
           console.warn("[AI Smarttalk] Invalid user in localStorage, removing");
-          localStorage.removeItem("user");
+          localStorage.removeItem(storageKey);
         } catch (error) {
           console.warn("[AI Smarttalk] Failed to parse stored user");
           // Clean up corrupted user data
-          localStorage.removeItem("user");
+          localStorage.removeItem(storageKey);
         }
       }
     }
     
     return initialUser;
-  });
+  };
+  const [stored, setStored] = useState(() => ({ storageKey, user: readInitialUser() }));
+  // Never render the preceding scope's account while changing assistant/site.
+  const user = stored.storageKey === storageKey ? stored.user : readInitialUser();
+  const setUserState = useCallback((next: User) => setStored({ storageKey, user: next }), [storageKey]);
 
   // Only validate non-override users
   useEffect(() => {
@@ -137,11 +142,24 @@ export default function useUser(initialUserOverride?: User) {
       if (!isValidAuthenticatedUser(user)) {
         console.warn("[AI Smarttalk] User token invalid or missing, reverting to anonymous and clearing storage");
         // ALWAYS remove invalid user from localStorage
-        localStorage.removeItem("user");
+        localStorage.removeItem(storageKey);
         setUserState(initialUser);
       }
     }
-  }, [user, initialUserOverride]);
+  }, [user, initialUserOverride, storageKey]);
+
+  useEffect(() => {
+    if (initialUserOverride) return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== storageKey) return;
+      try {
+        const next = event.newValue ? JSON.parse(event.newValue) : initialUser;
+        setUserState(next?.id === initialUser.id ? initialUser : isValidAuthenticatedUser(next) ? next : initialUser);
+      } catch { setUserState(initialUser); }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [initialUserOverride, storageKey]);
 
   /**
    * Updates the user state and persists the new user to localStorage.
@@ -160,12 +178,12 @@ export default function useUser(initialUserOverride?: User) {
     // Only persist to localStorage if this isn't an override user
     if (typeof window !== "undefined" && !initialUserOverride) {
       try {
-        localStorage.setItem("user", JSON.stringify(userToStore));
+        localStorage.setItem(storageKey, JSON.stringify(userToStore));
       } catch (error) {
         console.warn("[AI Smarttalk] Failed to persist user to localStorage");
       }
     }
-  }, [initialUserOverride]);
+  }, [initialUserOverride, storageKey]);
 
   /**
    * Reads and updates the user state from localStorage.
@@ -174,50 +192,49 @@ export default function useUser(initialUserOverride?: User) {
   const updateUserFromLocalStorage = useCallback(() => {
     if (initialUserOverride || typeof window === "undefined") return;
 
-    const storedUser = localStorage.getItem("user");
+    const storedUser = localStorage.getItem(storageKey);
     if (storedUser) {
       try {
         const parsedUser: User = JSON.parse(storedUser);
         
-        // STRICT VALIDATION: only accept valid authenticated users
-        if (isValidAuthenticatedUser(parsedUser)) {
+        // Explicit anonymous records carry cross-tab logout notifications.
+        if (parsedUser.id === initialUser.id) {
+          setUserState(initialUser);
+        } else if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
           console.warn("[AI Smarttalk] Stored user invalid or missing token, removing and using anonymous");
-          localStorage.removeItem("user");
+          localStorage.removeItem(storageKey);
           setUserState(initialUser);
         }
       } catch (error) {
         console.error('[AI Smarttalk] Error parsing user from localStorage:', error);
         // Clean up corrupted data
-        localStorage.removeItem("user");
+        localStorage.removeItem(storageKey);
         setUserState(initialUser);
       }
     }
-  }, [initialUserOverride]);
+  }, [initialUserOverride, storageKey]);
 
   /**
-   * Logs out the current user by resetting to anonymous user and clearing localStorage.
+   * Logs out the current user and publishes anonymous state to other tabs.
    * 
    * @returns The anonymous user that was set after logout
    */
   const logout = useCallback(() => {
-    if (initialUserOverride) {
-      console.warn("[AI Smarttalk] Cannot logout when using initialUserOverride");
-      return initialUser;
-    }
-
     if (typeof window !== "undefined") {
       try {
-        localStorage.removeItem("user");
+        // Removing an absent key emits no event (host-seeded accounts may
+        // never have been persisted). Always publish an explicit logout.
+        localStorage.setItem(storageKey, JSON.stringify({ ...initialUser, logoutNonce: `${Date.now()}:${Math.random()}` }));
       } catch (error) {
-        console.warn("[AI Smarttalk] Failed to remove user from localStorage during logout");
+        console.warn("[AI Smarttalk] Failed to publish logout to localStorage");
       }
     }
 
     setUserState(initialUser);
     return initialUser;
-  }, [initialUserOverride]);
+  }, [initialUserOverride, storageKey]);
 
   return {
     user,

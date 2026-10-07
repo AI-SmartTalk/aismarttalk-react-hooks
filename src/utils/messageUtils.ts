@@ -48,6 +48,7 @@ export const shouldMessageBeSent = (
     message.user && "role" in message.user && message.user.role === "BOT";
   const hasNoUser = !message.user;
   const isInitialUser =
+    message.user?.role === "ANONYMOUS" ||
     message.user?.id === "anonymous" ||
     message.user?.email === "anonymous@example.com";
   const isCurrentUser =

@@ -1,3 +1,5 @@
+import { shouldMessageBeSent } from "../../utils/messageUtils";
+import { conversationVisitorHeaders, reportConversationAccessFailure } from "../../utils/conversationVisitorToken";
 import {
   Dispatch,
   SetStateAction,
@@ -35,10 +37,16 @@ export const useSocketHandler = (
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
   debug: boolean = false,
-  onJoined?: () => Promise<void>
+  onJoined?: () => Promise<void>,
+  onEvent?: (event: string, payload: any) => void
 ): any => {
+  const identity = JSON.stringify([chatInstanceId, user.id, user.token]);
+  const liveIdentity = useRef(identity);
+  liveIdentity.current = identity;
   const onJoinedRef = useRef(onJoined);
   onJoinedRef.current = onJoined;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
@@ -154,13 +162,68 @@ export const useSocketHandler = (
       randomizationFactor: 0.5,          // Randomization factor for reconnection delay
     });
 
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempts = 0;
+    const scheduleRetry = () => {
+      if (retryTimer || accessDenied || !socket.connected || liveIdentity.current !== identity || socketRef.current !== socket) return;
+      const delay = Math.min(10_000, 1000 * 2 ** retryAttempts++);
+      retryTimer = setTimeout(() => { retryTimer = undefined; void joinAdmitted(); }, delay);
+    };
+    let admitting = false;
+    let lastAdmissionAt = 0;
+    let joinedThisConnection = false;
+    let accessDenied = false;
+    let admissionController: AbortController | undefined;
+    let admissionTimeout: ReturnType<typeof setTimeout> | undefined;
+    const joinAdmitted = async () => {
+      if (admitting || accessDenied || !socket.connected || liveIdentity.current !== identity) return;
+      admitting = true;
+      lastAdmissionAt = Date.now();
+      const controller = new AbortController();
+      admissionController = controller;
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      admissionTimeout = timeout;
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json', ...conversationVisitorHeaders(chatInstanceId) };
+        if (user?.token) { headers.Authorization = `Bearer ${user.token}`; headers['x-use-chatbot-auth'] = 'true'; }
+        const response = await fetch(`${finalApiUrl}/api/chat/socket-token`, { method: 'POST', headers, body: JSON.stringify({ chatInstanceId, chatModelId }), signal: controller.signal });
+        if (controller.signal.aborted || liveIdentity.current !== identity || socketRef.current !== socket) return;
+        if ([401, 403].includes(response.status)) {
+          const failure = await response.json().catch(() => ({}));
+          accessDenied = true;
+          reportConversationAccessFailure(chatInstanceId, response.status, failure.code || 'AUTH_REQUIRED'); return;
+        }
+        if (!response.ok) { scheduleRetry(); return; }
+        const { socketToken } = await response.json();
+        if (socket.connected && liveIdentity.current === identity) socket.emit('join', { chatInstanceId, chatModelId, socketToken });
+      } catch { scheduleRetry(); } finally { clearTimeout(timeout); if (admissionTimeout === timeout) admissionTimeout = undefined; admissionController = undefined; admitting = false; }
+    };
+    const grantRenewal = setInterval(() => { void joinAdmitted(); }, 45_000);
     socketRef.current = socket;
     socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
     socketRef.current.lastMessageReceivedRef = lastMessageReceivedRef;
     socketRef.current._debug = debug;
     socketRef.current._connectTime = Date.now();
 
-    socket.on("connect_error", (err) => {
+    const on = (event: string, listener: (...args: any[]) => void) => socket.on(event, (...args: any[]) => {
+      if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+      listener(...args);
+    });
+
+    on("session-access-denied", () => {
+      joinedThisConnection = false;
+      setSocketStatus('recovering');
+      if (Date.now() - lastAdmissionAt >= 5000) void joinAdmitted();
+      else scheduleRetry();
+    });
+
+    on("session-unavailable", () => {
+      joinedThisConnection = false;
+      setSocketStatus('recovering');
+      scheduleRetry();
+    });
+
+    on("connect_error", (err) => {
       trackEvent("connect_error");
       if (debug) {
         console.error("❌ [WebSocket] Socket connection error:", err.message || err);
@@ -174,7 +237,7 @@ export const useSocketHandler = (
       setSocketStatus("error");
     });
 
-    socket.on("connect", () => {
+    on("connect", () => {
       trackEvent("connect");
       const connectionTime =
         Date.now() - (socketRef.current?._connectTime || Date.now());
@@ -182,13 +245,20 @@ export const useSocketHandler = (
         console.log(`✅ [WebSocket] Socket connected successfully in ${connectionTime}ms`);
       }
 
-      socket.emit("join", { chatInstanceId, chatModelId });
-      setSocketStatus("connected");
+      void joinAdmitted();
+      setSocketStatus("connecting");
     });
 
     // Listen for server confirmation that join was successful
-    socket.on("joined", (data) => {
-      if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
+    on("joined", (data) => {
+      if (data.chatInstanceId !== chatInstanceId) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined; retryAttempts = 0;
+      setSocketStatus('connected');
+      if (data.chatInstanceId === chatInstanceId && !joinedThisConnection) {
+        joinedThisConnection = true;
+        void onJoinedRef.current?.();
+      }
       trackEvent("joined");
       if (debug) {
         console.log("🎉 [WebSocket] Successfully Joined Channels");
@@ -202,7 +272,10 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("disconnect", (reason) => {
+    on("disconnect", (reason) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined;
+      joinedThisConnection = false;
       trackEvent("disconnect");
       reconnectCountRef.current++;
 
@@ -236,8 +309,8 @@ export const useSocketHandler = (
       if (debug) {
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
-      socket.emit("join", { chatInstanceId, chatModelId });
-      setSocketStatus("connected");
+      // The socket connect event admits every transport connection, including reconnects.
+      setSocketStatus("connecting");
     });
 
     socket.io.on("reconnect_failed", () => {
@@ -247,7 +320,7 @@ export const useSocketHandler = (
       setSocketStatus("error");
     });
 
-    socket.on("chat-message", (data) => {
+    on("chat-message", (data) => {
       trackEvent("chat-message");
 
       if (data.chatInstanceId === chatInstanceId) {
@@ -264,24 +337,11 @@ export const useSocketHandler = (
         lastMessageReceivedRef.current = now;
         socketRef.current._lastMessageTime = now;
 
-        // Check if this is a normal message or a temp message
-        const isCurrentUser =
-          (user.id &&
-            user.id !== "anonymous" &&
-            data.message.user?.id === user.id) ||
-          (user.email && data.message.user?.email === user.email);
+        // Use the same attribution as history, including visitor messages
+        // preserved when the conversation is claimed by an account.
+        const isSent = shouldMessageBeSent(data.message, user.id, user.email);
 
-        const isAnonymousUser =
-          user.id === "anonymous" &&
-          (data.message.user?.id === "anonymous" ||
-            data.message.user?.email === "anonymous@example.com");
-
-        if (debug) {
-          console.log(
-            "   Processing message with isSent:",
-            isCurrentUser || isAnonymousUser
-          );
-        }
+        if (debug) console.log("   Processing message with isSent:", isSent);
 
         // Let the reducer handle the message combining logic
         dispatch({
@@ -289,7 +349,7 @@ export const useSocketHandler = (
           payload: {
             message: {
               ...data.message,
-              isSent: isCurrentUser || isAnonymousUser,
+              isSent,
             },
             chatInstanceId,
             userId: user.id,
@@ -310,12 +370,12 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("user-typing", (data: TypingUser) => {
+    on("user-typing", (data: TypingUser) => {
       trackEvent("user-typing");
       stableTypingUpdate(data);
     });
 
-    socket.on("canvas-live-update", (data: CanvasLiveUpdate) => {
+    on("canvas-live-update", (data: CanvasLiveUpdate) => {
       trackEvent("canvas-live-update");
       if (debug) {
         console.log("\n🎨 [WebSocket] Canvas Live Update");
@@ -342,7 +402,7 @@ export const useSocketHandler = (
       });
     });
 
-    socket.on("update-suggestions", (data) => {
+    on("update-suggestions", (data) => {
       trackEvent("update-suggestions");
       if (data.chatInstanceId === chatInstanceId) {
         if (debug) {
@@ -358,7 +418,7 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on("conversation-starters", (data) => {
+    on("conversation-starters", (data) => {
       trackEvent("conversation-starters");
       if (
         data.chatInstanceId === chatInstanceId &&
@@ -374,56 +434,13 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on(
-      "otp-login",
-      (data: { chatInstanceId: string; user: User; token: string }) => {
-        trackEvent("otp-login");
-        if (debug) {
-          console.log("\n🔐 [WebSocket] OTP Login");
-        }
+    // Credential changes must arrive from the authenticated HTTP flow or the
+    // verified embedding parent. A room notification is never a login proof.
+    on("otp-login", (data: { chatInstanceId?: string }) => {
+      if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
+    });
 
-        if (data.user && data.token) {
-          const finalUser: User = {
-            ...data.user,
-            token: data.token,
-            id: data.user.id || `user-${data.user.email.split("@")[0]}`,
-          };
-
-          if (debug) {
-            console.log("   Received user token", {
-              email: finalUser.email,
-              id: finalUser.id,
-            });
-          }
-
-          setUser(finalUser);
-
-          try {
-            localStorage.setItem("user", JSON.stringify(finalUser));
-            if (debug) {
-              console.log("   ✓ User saved to localStorage");
-            }
-          } catch (err) {
-            if (debug) {
-              console.error("   ❌ Failed to store user in localStorage:", err);
-            }
-          }
-
-          if (debug) {
-            console.log("   🔌 Disconnecting socket to reconnect with new user credentials");
-          }
-          socket.disconnect();
-        } else {
-          if (debug) {
-            console.error("   ❌ Invalid user data from otp-login, missing token or user data");
-          }
-          setUser({ ...initialUser });
-          localStorage.removeItem("user");
-        }
-      }
-    );
-
-    socket.on("tool-run-start", (data: Tool) => {
+    on("tool-run-start", (data: Tool) => {
       trackEvent("tool-run-start");
       if (debug) {
         console.log("🔧 [WebSocket] Tool started:", data.name);
@@ -432,7 +449,7 @@ export const useSocketHandler = (
     });
 
     // Legacy canvas events for backward compatibility
-    socket.on("canvas:update", (canvas: any) => {
+    on("canvas:update", (canvas: any) => {
       trackEvent("canvas:update");
       if (debug) {
         console.log("🎨 [WebSocket] Legacy canvas:update event received");
@@ -449,7 +466,7 @@ export const useSocketHandler = (
       }
     });
 
-    socket.on(
+    on(
       "canvas:line-update",
       ({
         start,
@@ -476,7 +493,9 @@ export const useSocketHandler = (
       }
     );
 
-    socket.onAny((event) => {
+    socket.onAny((event, payload) => {
+      if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+      onEventRef.current?.(event, payload);
       if (debug) {
         console.log(`🔔 [WebSocket] Socket event: ${event}`);
       }
@@ -487,6 +506,11 @@ export const useSocketHandler = (
     }
 
     return () => {
+      clearInterval(grantRenewal);
+      if (retryTimer) clearTimeout(retryTimer);
+      admissionController?.abort();
+      if (admissionTimeout) clearTimeout(admissionTimeout);
+      admissionTimeout = undefined;
       if (socket) {
         if (debug) {
           console.log("\n🧹 [WebSocket] Cleaning up socket on unmount/effect cleanup");
@@ -501,7 +525,7 @@ export const useSocketHandler = (
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, finalApiUrl, user.id, user.token]);
 
   return socketRef;
 };

@@ -23,11 +23,11 @@ describe('index barrel exports', () => {
   
   it('exposes the supported runtime API', () => {
     const hooks = ['useChatMessages', 'useChatInstance', 'useAISmarttalkChat', 'useUser',
-      'useChatModel', 'useOtpAuth', 'useFileUpload', 'useSocketHandler'];
+      'useConversationHistory', 'useChatModel', 'useOtpAuth', 'useFileUpload', 'useSocketHandler'];
     for (const name of hooks) expect(typeof (indexExports as any)[name]).toBe('function');
     expect(indexExports.ChatActionTypes).toBeDefined();
     expect(typeof indexExports.chatReducer).toBe('function');
     expect(indexExports.initialChatState).toBeDefined();
-    expect(Object.keys(indexExports).sort()).toEqual([...hooks, 'ChatActionTypes', 'chatReducer', 'initialChatState'].sort());
+    expect(Object.keys(indexExports).sort()).toEqual([...hooks, 'conversationVisitorHeaders', 'reportConversationAccessFailure', 'ChatActionTypes', 'chatReducer', 'initialChatState'].sort());
   });
 });

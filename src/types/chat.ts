@@ -30,4 +30,6 @@ export interface ChatHistoryItem {
   title: string;
   messages: FrontChatMessage[];
   lastUpdated: string;
+  preview?: string;
+  messageCount?: number;
 }
