@@ -5,8 +5,8 @@ import useChatInstance, { chatInstanceStorageKey, chatActiveSelectionKey } from 
 const base = { chatModelId: 'assistant', lang: 'fr', config: { apiUrl: 'http://core.test' } };
 const account = { id: 'alice', email: 'alice@example.test', token: 'valid-alice' };
 const anonymous = { id: 'anonymous', email: 'anonymous@example.com' };
-const key = (user?: typeof account | typeof anonymous) => chatInstanceStorageKey('http://core.test', 'assistant', user);
-const activeKey = () => chatActiveSelectionKey('http://core.test', 'assistant');
+const key = (user?: typeof account | typeof anonymous, namespace = '') => chatInstanceStorageKey('http://core.test', 'assistant', user, false, namespace);
+const activeKey = (namespace = '', user?: typeof account | typeof anonymous) => chatActiveSelectionKey('http://core.test', 'assistant', false, namespace, user);
 const publish = (id: string) => { const value = JSON.stringify({ id, identity: 'visitor' }); localStorage.setItem(activeKey(), value); window.dispatchEvent(new StorageEvent('storage', { key: activeKey(), newValue: value })); };
 const response = (id: string) => ({ ok: true, status: 200, json: async () => ({ chatInstanceId: id }) });
 const refusal = (status: number, code: string) => ({ ok: false, status, json: async () => ({ code }) });
@@ -139,6 +139,38 @@ it('coalesces concurrent creation requests', async () => {
 it('keeps API and assistant contexts isolated', () => {
   expect(key(account)).not.toBe(chatInstanceStorageKey('http://another.test', 'assistant', account));
   expect(key(account)).not.toBe(chatInstanceStorageKey('http://core.test', 'another', account));
+});
+it('isolates an anonymous preview from visitor and account selections on the same site', async () => {
+  localStorage.setItem(key(anonymous), 'storefront-visitor-thread');
+  localStorage.setItem(key(account), 'admin-account-thread');
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'admin-account-thread', identity: 'user:alice' }));
+  localStorage.setItem(activeKey('admin-preview', account), JSON.stringify({ id: 'prior-preview-account-thread', identity: 'user:alice' }));
+  const preview = { ...base, config: { ...base.config, storageNamespace: 'admin-preview' } };
+  const { result } = renderHook(() => useChatInstance(preview));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  expect(JSON.parse(request.mock.calls[0][1].body)).not.toHaveProperty('chatInstanceId');
+  expect(localStorage.getItem(key(anonymous))).toBe('storefront-visitor-thread');
+  expect(localStorage.getItem(key(account))).toBe('admin-account-thread');
+  expect(localStorage.getItem(activeKey())).toContain('admin-account-thread');
+  expect(localStorage.getItem(key(anonymous, 'admin-preview'))).toBe('created');
+  expect(localStorage.getItem(activeKey('admin-preview', anonymous))).toContain('created');
+  expect(localStorage.getItem(activeKey('admin-preview', account))).toContain('prior-preview-account-thread');
+});
+it('starts a fresh anonymous preview session after logout from a signed-in preview', async () => {
+  const namespace = 'admin-preview';
+  localStorage.setItem(key(anonymous, namespace), 'old-guest-preview');
+  request.mockImplementation(async (_url, options) => {
+    const body = JSON.parse(options.body);
+    return response(body.chatInstanceId || (options.headers.Authorization ? 'account-preview' : 'fresh-guest-preview'));
+  });
+  const { result, rerender } = renderHook(({ user }) => useChatInstance({ ...base, config: { ...base.config, storageNamespace: namespace }, user }), {
+    initialProps: { user: account as typeof account | typeof anonymous },
+  });
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('account-preview'));
+  act(() => result.current.beginAnonymousSession());
+  rerender({ user: anonymous });
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('fresh-guest-preview'));
+  expect(JSON.parse(request.mock.calls[1][1].body)).not.toHaveProperty('chatInstanceId');
 });
 it('renews a token without creating another owned conversation', async () => {
   request.mockImplementation(async (_url, options) => response(JSON.parse(options.body).chatInstanceId || 'owned'));

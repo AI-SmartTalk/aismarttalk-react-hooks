@@ -13,6 +13,8 @@ export interface ChatConfig {
   wsUrl?: string;
   cdnUrl?: string;
   apiToken?: string;
+  /** Isolate local conversation selection for previews without changing server access. */
+  storageNamespace?: string;
   features?: ChatFeatures;
   user?: User;
   debug?: boolean;

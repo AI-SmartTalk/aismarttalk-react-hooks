@@ -6,7 +6,7 @@ type Identity = { token?: string; id?: string; email?: string; name?: string };
 interface UseChatInstanceProps {
   chatModelId: string;
   lang: string;
-  config?: { apiUrl?: string; apiToken?: string };
+  config?: { apiUrl?: string; apiToken?: string; storageNamespace?: string };
   user?: Identity;
   isAdmin?: boolean;
 }
@@ -16,19 +16,24 @@ export function chatIdentity(user?: Identity): string {
     ? `user:${user.id}` : 'visitor';
 }
 
-export function chatInstanceStorageKey(apiUrl: string, modelId: string, user?: Identity, admin = false): string {
+export function chatInstanceStorageKey(apiUrl: string, modelId: string, user?: Identity, admin = false, storageNamespace = ''): string {
   let site = '';
   try {
     const host = new URLSearchParams(window.location.search).get('parentOrigin');
     site = host ? new URL(host).origin : document.referrer && window.parent !== window
       ? new URL(document.referrer).origin : window.location.origin;
   } catch { /* SSR or restricted browser */ }
-  return `chatInstance:v2:${JSON.stringify([apiUrl.replace(/\/$/, ''), modelId, admin, chatIdentity(user), site])}`;
+  const parts: unknown[] = [apiUrl.replace(/\/$/, ''), modelId, admin, chatIdentity(user), site];
+  if (storageNamespace) parts.push(storageNamespace);
+  return `chatInstance:v2:${JSON.stringify(parts)}`;
 }
 
-export function chatActiveSelectionKey(apiUrl: string, modelId: string, admin = false): string {
-  const parts = JSON.parse(chatInstanceStorageKey(apiUrl, modelId, undefined, admin).slice('chatInstance:v2:'.length));
-  parts.splice(3, 1);
+export function chatActiveSelectionKey(apiUrl: string, modelId: string, admin = false, storageNamespace = '', user?: Identity): string {
+  const parts = JSON.parse(chatInstanceStorageKey(apiUrl, modelId, user, admin, storageNamespace).slice('chatInstance:v2:'.length));
+  // Regular embeds share the current selection between tabs. A namespaced
+  // preview keeps selections identity-scoped so an admin thread can never
+  // become the anonymous visitor preview's implicit resume target.
+  if (!storageNamespace) parts.splice(3, 1);
   return `chatActive:v3:${JSON.stringify(parts)}`;
 }
 type Selection = { id: string; identity: string; fresh?: boolean };
@@ -38,8 +43,9 @@ type Selection = { id: string; identity: string; fresh?: boolean };
 export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = false }: UseChatInstanceProps) => {
   const apiUrl = (config?.apiUrl || defaultApiUrl).replace(/\/$/, '');
   const apiToken = config?.apiToken || '';
-  const storageKey = chatInstanceStorageKey(apiUrl, chatModelId, user, isAdmin);
-  const selectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin);
+  const storageNamespace = config?.storageNamespace || '';
+  const storageKey = chatInstanceStorageKey(apiUrl, chatModelId, user, isAdmin, storageNamespace);
+  const selectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, user);
   const legacyKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin' : '-standard'}]`;
   const [active, setActive] = useState({ scope: '', id: '' });
   const [error, setError] = useState<Error | null>(null);
@@ -58,7 +64,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
 
   const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true): Promise<string | null> => {
     const identity = overrideUser || user;
-    const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity, isAdmin);
+    const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity, isAdmin, storageNamespace);
     const epoch = context.current.epoch;
     const key = JSON.stringify([scope, identity?.token, requestedId || '', fresh, publish]);
     if (pending.current?.key === key && !pending.current.controller.signal.aborted) return pending.current.promise;
@@ -80,9 +86,9 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
       try {
         const admit = async () => {
           if (!current()) return null;
-          const previousScope = `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
+          const previousScope = storageNamespace ? '' : `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
           const selection = readSelection();
-          const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || read(previousScope) || read(legacyKey);
+          const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || (previousScope ? read(previousScope) : null) || (!storageNamespace ? read(legacyKey) : null);
           let resuming = Boolean(saved);
           let response = isAdmin && saved
             ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
@@ -111,7 +117,9 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
             store(selectionKey, JSON.stringify({ id: data.chatInstanceId, identity: chatIdentity(identity) }));
           }
           // Legacy storage is never written again; each identity has its own key.
-          try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
+          if (!storageNamespace) {
+            try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
+          }
           if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
           return data.chatInstanceId;
         };
@@ -133,7 +141,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     })();
     pending.current = { key, controller, promise };
     return promise;
-  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey]);
+  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace]);
 
   const getNewInstance = useCallback((identity?: Identity) => resolve(identity, undefined, true), [resolve]);
   const selectInstance = useCallback((id: string) => resolve(undefined, id), [resolve]);
@@ -141,8 +149,11 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     pending.current?.controller.abort();
     context.current.epoch++;
     setActive({ scope: '', id: '' });
-    store(selectionKey, JSON.stringify({ id: '', identity: 'visitor', fresh: true }));
-  }, [selectionKey]);
+    const freshVisitor = JSON.stringify({ id: '', identity: 'visitor', fresh: true });
+    store(selectionKey, freshVisitor);
+    const visitorSelectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, { id: 'anonymous' });
+    if (visitorSelectionKey !== selectionKey) store(visitorSelectionKey, freshVisitor);
+  }, [apiUrl, chatModelId, isAdmin, selectionKey, storageNamespace]);
   const cleanup = useCallback(async () => {
     pending.current?.controller.abort();
     context.current.epoch++;
