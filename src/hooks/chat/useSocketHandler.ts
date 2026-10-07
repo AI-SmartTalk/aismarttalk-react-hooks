@@ -161,23 +161,32 @@ export const useSocketHandler = (
 
     let admitting = false;
     let lastAdmissionAt = 0;
+    let joinedThisConnection = false;
+    let accessDenied = false;
+    let admissionController: AbortController | undefined;
+    let admissionTimeout: ReturnType<typeof setTimeout> | undefined;
     const joinAdmitted = async () => {
-      if (admitting || !socket.connected || liveIdentity.current !== identity) return;
+      if (admitting || accessDenied || !socket.connected || liveIdentity.current !== identity) return;
       admitting = true;
       lastAdmissionAt = Date.now();
+      const controller = new AbortController();
+      admissionController = controller;
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+      admissionTimeout = timeout;
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json', ...conversationVisitorHeaders(chatInstanceId) };
         if (user?.token) { headers.Authorization = `Bearer ${user.token}`; headers['x-use-chatbot-auth'] = 'true'; }
-        const response = await fetch(`${finalApiUrl}/api/chat/socket-token`, { method: 'POST', headers, body: JSON.stringify({ chatInstanceId, chatModelId }) });
-        if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+        const response = await fetch(`${finalApiUrl}/api/chat/socket-token`, { method: 'POST', headers, body: JSON.stringify({ chatInstanceId, chatModelId }), signal: controller.signal });
+        if (controller.signal.aborted || liveIdentity.current !== identity || socketRef.current !== socket) return;
         if ([401, 403].includes(response.status)) {
           const failure = await response.json().catch(() => ({}));
+          accessDenied = true;
           reportConversationAccessFailure(chatInstanceId, response.status, failure.code || 'AUTH_REQUIRED'); return;
         }
         if (!response.ok) return;
         const { socketToken } = await response.json();
         if (socket.connected && liveIdentity.current === identity) socket.emit('join', { chatInstanceId, chatModelId, socketToken });
-      } catch { /* HTTP sync covers socket outages. */ } finally { admitting = false; }
+      } catch { /* HTTP sync covers socket outages. */ } finally { clearTimeout(timeout); if (admissionTimeout === timeout) admissionTimeout = undefined; admissionController = undefined; admitting = false; }
     };
     const grantRenewal = setInterval(() => { void joinAdmitted(); }, 45_000);
     socketRef.current = socket;
@@ -224,7 +233,10 @@ export const useSocketHandler = (
 
     // Listen for server confirmation that join was successful
     on("joined", (data) => {
-      if (data.chatInstanceId === chatInstanceId) void onJoinedRef.current?.();
+      if (data.chatInstanceId === chatInstanceId && !joinedThisConnection) {
+        joinedThisConnection = true;
+        void onJoinedRef.current?.();
+      }
       trackEvent("joined");
       if (debug) {
         console.log("🎉 [WebSocket] Successfully Joined Channels");
@@ -239,6 +251,7 @@ export const useSocketHandler = (
     });
 
     on("disconnect", (reason) => {
+      joinedThisConnection = false;
       trackEvent("disconnect");
       reconnectCountRef.current++;
 
@@ -272,7 +285,7 @@ export const useSocketHandler = (
       if (debug) {
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
-      void joinAdmitted();
+      // The socket connect event admits every transport connection, including reconnects.
       setSocketStatus("connected");
     });
 
@@ -468,6 +481,9 @@ export const useSocketHandler = (
 
     return () => {
       clearInterval(grantRenewal);
+      admissionController?.abort();
+      if (admissionTimeout) clearTimeout(admissionTimeout);
+      admissionTimeout = undefined;
       if (socket) {
         if (debug) {
           console.log("\n🧹 [WebSocket] Cleaning up socket on unmount/effect cleanup");
@@ -482,7 +498,7 @@ export const useSocketHandler = (
       }
       socketRef.current = null;
     };
-  }, [chatInstanceId, chatModelId, finalWsUrl, user.id, user.token]);
+  }, [chatInstanceId, chatModelId, finalWsUrl, finalApiUrl, user.id, user.token]);
 
   return socketRef;
 };
