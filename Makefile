@@ -1,12 +1,7 @@
 .PHONY: install-chat-hooks release
 
-HOOKS_VERSION := $(shell node -p "require('./package.json').version")
-
 install-chat-hooks:
-	npm run build
-	mkdir -p ../chatbot-front/vendor
-	npm pack --ignore-scripts --pack-destination ../chatbot-front/vendor
-	cd ../chatbot-front && npm install ./vendor/aismarttalk-react-hooks-$(HOOKS_VERSION).tgz
+	node scripts/install-chat-hooks.mjs
 	$(MAKE) -C ../chatbot-front build universal-build
 
 # Publish only when the operator explicitly invokes this target from main.
