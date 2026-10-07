@@ -73,45 +73,53 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     const post = (id?: string) => fetch(url, {
       method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || '') }, signal: controller.signal,
       body: JSON.stringify({ chatModelId, lang, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
-        ...(id ? { resumeOnly: true, chatInstanceId: id, ...(identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
+        ...(id ? { resumeOnly: true, chatInstanceId: id, ...(publish && identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
     });
     const timeout = setTimeout(() => controller.abort(), 10_000);
     const promise = (async () => {
       try {
-        const previousScope = `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
-        const selection = readSelection();
-        const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || read(previousScope) || read(legacyKey);
-        let resuming = Boolean(saved);
-        let response = isAdmin && saved
-          ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
-          : await post(saved || undefined);
-        if (!response.ok && saved && !isAdmin) {
-          const failure = await response.json().catch(() => ({}));
-          // Access loss is a locked selection, never an implicit new thread.
-          throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, conversationId: saved });
-        }
-        if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code }); }
-        const data = await response.json();
-        if (isAdmin && saved && !data.chatInstanceId) data.chatInstanceId = saved;
-        if (typeof data.chatInstanceId !== 'string' || !data.chatInstanceId) throw new Error('Chat instance response is missing its ID');
-        // A resume response is an admission of this exact conversation, not a
-        // creation. Fail closed against older/incompatible API deployments.
-        if (resuming && data.chatInstanceId !== saved) {
-          throw Object.assign(new Error('Server returned a different conversation during resume'), { code: 'CONVERSATION_RESUME_MISMATCH' });
-        }
-        if (!current()) return null;
-        // Receiving a storage event must not publish it back to other tabs.
-        // Late events and responses must not override a newer shared selection.
-        if (!publish && readSelection()?.id !== requestedId) return null;
-        if (typeof data.visitorToken === 'string') storeConversationVisitorToken(data.chatInstanceId, data.visitorToken);
-        if (publish) {
-          store(scope, data.chatInstanceId);
-          store(selectionKey, JSON.stringify({ id: data.chatInstanceId, identity: chatIdentity(identity) }));
-        }
-        // Legacy storage is never written again; each identity has its own key.
-        try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
-        if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
-        return data.chatInstanceId;
+        const admit = async () => {
+          if (!current()) return null;
+          const previousScope = `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
+          const selection = readSelection();
+          const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || read(previousScope) || read(legacyKey);
+          let resuming = Boolean(saved);
+          let response = isAdmin && saved
+            ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
+            : await post(saved || undefined);
+          if (!response.ok && saved && !isAdmin) {
+            const failure = await response.json().catch(() => ({}));
+            // Access loss is a locked selection, never an implicit new thread.
+            throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, conversationId: saved });
+          }
+          if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code }); }
+          const data = await response.json();
+          if (isAdmin && saved && !data.chatInstanceId) data.chatInstanceId = saved;
+          if (typeof data.chatInstanceId !== 'string' || !data.chatInstanceId) throw new Error('Chat instance response is missing its ID');
+          // A resume response is an admission of this exact conversation, not a
+          // creation. Fail closed against older/incompatible API deployments.
+          if (resuming && data.chatInstanceId !== saved) {
+            throw Object.assign(new Error('Server returned a different conversation during resume'), { code: 'CONVERSATION_RESUME_MISMATCH' });
+          }
+          if (!current()) return null;
+          // Receiving a storage event must not publish it back to other tabs.
+          // Late events and responses must not override a newer shared selection.
+          if (!publish && readSelection()?.id !== requestedId) return null;
+          if (typeof data.visitorToken === 'string') storeConversationVisitorToken(data.chatInstanceId, data.visitorToken);
+          if (publish) {
+            store(scope, data.chatInstanceId);
+            store(selectionKey, JSON.stringify({ id: data.chatInstanceId, identity: chatIdentity(identity) }));
+          }
+          // Legacy storage is never written again; each identity has its own key.
+          try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
+          if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
+          return data.chatInstanceId;
+        };
+        // Serialize admission across tabs and re-read the shared selection
+        // inside the lock, so logout creates one fresh visitor conversation.
+        return typeof navigator !== 'undefined' && navigator.locks
+          ? await navigator.locks.request(selectionKey, { signal: controller.signal }, admit)
+          : await admit();
       } catch (cause) {
         if (mounted.current && context.current.epoch === epoch && pending.current?.controller === controller) {
           setError(cause instanceof Error ? cause : new Error('Failed to initialize chat instance'));

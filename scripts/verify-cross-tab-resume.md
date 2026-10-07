@@ -18,5 +18,16 @@ Options :
 
 L'API de ce test est une simulation du contrat de création/reprise, pas le serveur
 production. Les tests unitaires API dans aismarttalk couvrent les admissions et
-refus d'accès. Le test ne garantit pas une seule création globale : deux onglets
-sans stockage préalable peuvent créer deux conversations avant de converger.
+refus d'accès. L’admission est sérialisée entre onglets via Web Locks lorsque cette API est
+disponible (contexte sécurisé, notamment HTTPS et localhost). Sans Web Locks,
+les contrôles d’accès et la convergence restent actifs, mais deux premières
+ouvertures simultanées peuvent créer deux conversations avant de converger.
+
+
+`node scripts/verify-cross-tab-logout.cjs` vérifie avec le SDK compilé et trois
+onglets Chromium déjà authentifiés par le site : déconnexion propagée même sans
+clé utilisateur préexistante, une seule nouvelle conversation visiteur, aucun
+rattachement depuis une sélection reçue, aucun appel au repos, puis auto-login
+au rechargement reprenant et rattachant exactement cette conversation. L’API
+HTTP de ce scénario simule les admissions et conserve un message visiteur pour
+vérifier qu’il n’est pas perdu au rechargement.

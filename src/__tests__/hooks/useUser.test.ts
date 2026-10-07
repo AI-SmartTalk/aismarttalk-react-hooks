@@ -228,3 +228,19 @@ describe('scoped and host-seeded identity', () => {
     expect(result.current.user.id).toBe('anonymous');
   });
 });
+
+it('broadcasts logout even when a host-seeded account has no stored user key', () => {
+  const { result, rerender } = renderHook(({ seed }) => useUser(seed, 'host-without-user-key'), { initialProps: { seed: {id:'alice',email:'alice@example.test',token:'host-token'} as User | undefined } });
+  rerender({ seed: undefined });
+  act(() => { result.current.logout(); });
+  expect(JSON.parse(localStorage.getItem('host-without-user-key')!)).toMatchObject({ id: 'anonymous' });
+});
+
+it('publishes a new logout event even when anonymous state was already stored', () => {
+  const { result } = renderHook(() => useUser(undefined, 'repeated-logout'));
+  act(() => { result.current.logout(); });
+  const first = localStorage.getItem('repeated-logout');
+  act(() => { result.current.logout(); });
+  expect(localStorage.getItem('repeated-logout')).not.toBe(first);
+  expect(result.current.user.id).toBe('anonymous');
+});

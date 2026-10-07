@@ -216,3 +216,15 @@ it('does not create in response to an inaccessible cross-tab selection', async (
   expect(request).toHaveBeenCalledTimes(1);
   expect(result.current.chatInstanceId).toBe('');
 });
+
+it('never claims a new visitor conversation received from another tab with an old account', async () => {
+  const { result } = renderHook(() => useChatInstance({ ...base, user: account }));
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
+  localStorage.setItem('chatVisitorToken:v1:new-guest', 'guest-secret');
+  request.mockResolvedValue(response('new-guest'));
+  act(() => { publish('new-guest'); });
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  const body = JSON.parse(request.mock.calls[1][1].body);
+  expect(body).toMatchObject({ chatInstanceId: 'new-guest', resumeOnly: true });
+  expect(body.claimAnonymous).toBeUndefined();
+});

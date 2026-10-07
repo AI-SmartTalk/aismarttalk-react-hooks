@@ -111,6 +111,7 @@ export default function useUser(initialUserOverride?: User, storageKey = 'user')
       if (storedUser) {
         try {
           const parsedUser: User = JSON.parse(storedUser);
+          if (parsedUser.id === initialUser.id) return initialUser;
           if (isValidAuthenticatedUser(parsedUser)) {
             return parsedUser;
           }
@@ -153,7 +154,7 @@ export default function useUser(initialUserOverride?: User, storageKey = 'user')
       if (event.key !== storageKey) return;
       try {
         const next = event.newValue ? JSON.parse(event.newValue) : initialUser;
-        setUserState(isValidAuthenticatedUser(next) ? next : initialUser);
+        setUserState(next?.id === initialUser.id ? initialUser : isValidAuthenticatedUser(next) ? next : initialUser);
       } catch { setUserState(initialUser); }
     };
     window.addEventListener("storage", onStorage);
@@ -196,8 +197,10 @@ export default function useUser(initialUserOverride?: User, storageKey = 'user')
       try {
         const parsedUser: User = JSON.parse(storedUser);
         
-        // STRICT VALIDATION: only accept valid authenticated users
-        if (isValidAuthenticatedUser(parsedUser)) {
+        // Explicit anonymous records carry cross-tab logout notifications.
+        if (parsedUser.id === initialUser.id) {
+          setUserState(initialUser);
+        } else if (isValidAuthenticatedUser(parsedUser)) {
           setUserState(parsedUser);
         } else {
           console.warn("[AI Smarttalk] Stored user invalid or missing token, removing and using anonymous");
@@ -214,16 +217,18 @@ export default function useUser(initialUserOverride?: User, storageKey = 'user')
   }, [initialUserOverride, storageKey]);
 
   /**
-   * Logs out the current user by resetting to anonymous user and clearing localStorage.
+   * Logs out the current user and publishes anonymous state to other tabs.
    * 
    * @returns The anonymous user that was set after logout
    */
   const logout = useCallback(() => {
     if (typeof window !== "undefined") {
       try {
-        localStorage.removeItem(storageKey);
+        // Removing an absent key emits no event (host-seeded accounts may
+        // never have been persisted). Always publish an explicit logout.
+        localStorage.setItem(storageKey, JSON.stringify({ ...initialUser, logoutNonce: `${Date.now()}:${Math.random()}` }));
       } catch (error) {
-        console.warn("[AI Smarttalk] Failed to remove user from localStorage during logout");
+        console.warn("[AI Smarttalk] Failed to publish logout to localStorage");
       }
     }
 
