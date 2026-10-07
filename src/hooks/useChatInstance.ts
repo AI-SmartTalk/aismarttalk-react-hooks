@@ -88,15 +88,22 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           if (!current()) return null;
           const previousScope = storageNamespace ? '' : `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
           const selection = readSelection();
-          const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || (previousScope ? read(previousScope) : null) || (!storageNamespace ? read(legacyKey) : null);
+          const scoped = requestedId || selection?.id || read(scope);
+          const legacy = !storageNamespace ? (previousScope ? read(previousScope) : null) || read(legacyKey) : null;
+          const saved = fresh || selection?.fresh ? null : scoped || legacy;
+          const legacyVisitor = Boolean(saved && !scoped && saved === legacy && !identity?.token && !Object.keys(conversationVisitorHeaders(saved)).length);
           let resuming = Boolean(saved);
           let response = isAdmin && saved
             ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
             : await post(saved || undefined);
           if (!response.ok && saved && !isAdmin) {
             const failure = await response.json().catch(() => ({}));
-            // Access loss is a locked selection, never an implicit new thread.
-            throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason, conversationId: saved });
+            // Pre-capability visitor IDs cannot be recovered securely. Migrate
+            // only the legacy guest selection; account/auth/bans stay locked.
+            if (legacyVisitor && response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED') {
+              response = await post();
+              resuming = false;
+            } else throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason, conversationId: saved });
           }
           if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason }); }
           const data = await response.json();
