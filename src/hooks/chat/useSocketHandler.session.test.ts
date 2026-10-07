@@ -8,13 +8,14 @@ it('reconnects on token renewal and ignores events from the old identity', async
   const sockets: any[] = [];
   (socketIOClient as jest.Mock).mockImplementation(() => {
     const callbacks: Record<string, Function> = {};
-    const socket = { connected: true, onAny: jest.fn(), io: { on: jest.fn() }, on: jest.fn((event, cb) => { callbacks[event] = cb; }), emit: jest.fn(), disconnect: jest.fn(), removeAllListeners: jest.fn(), callbacks };
+    const socket = { connected: true, onAny: jest.fn(cb => { callbacks.any = cb; }), io: { on: jest.fn() }, on: jest.fn((event, cb) => { callbacks[event] = cb; }), emit: jest.fn(), disconnect: jest.fn(), removeAllListeners: jest.fn(), callbacks };
     sockets.push(socket); return socket;
   });
+  const eventListener = jest.fn();
   const joined = jest.fn(); const setter = jest.fn(); const dispatch = jest.fn();
   const canvas: any = {};
   const { rerender, unmount } = renderHook(({ token }) => useSocketHandler('conversation', { id: 'alice', email: 'alice@example.test', token } as any,
-    'http://ws.test', 'http://core.test', 'model', dispatch, setter, setter, setter, setter, setter, setter, canvas, [], false, joined), { initialProps: { token: 'old' } });
+    'http://ws.test', 'http://core.test', 'model', dispatch, setter, setter, setter, setter, setter, setter, canvas, [], false, joined, eventListener), { initialProps: { token: 'old' } });
   act(() => sockets[0].callbacks.connect());
   await waitFor(() => expect(sockets[0].emit).toHaveBeenCalledWith('join', { chatInstanceId: 'conversation', chatModelId: 'model', socketToken: 'signed-grant' }));
   const admissions = (global.fetch as jest.Mock).mock.calls.length;
@@ -23,9 +24,13 @@ it('reconnects on token renewal and ignores events from the old identity', async
   setter.mockClear();
   act(() => sockets[0].callbacks['otp-login']({ chatInstanceId: 'other-conversation', user: { id: 'attacker' }, token: 'attacker-token' }));
   expect(setter).not.toHaveBeenCalled();
+  const previousEvents = sockets[0].callbacks.any;
+  act(() => previousEvents('voice-processing-step', {step:'thinking'}));
+  expect(eventListener).toHaveBeenCalledWith('voice-processing-step', {step:'thinking'});
   const previous = sockets[0].callbacks.joined;
   rerender({ token: 'renewed' });
   expect(sockets[0].disconnect).toHaveBeenCalled();
+  eventListener.mockClear();act(()=>previousEvents('voice-processing-step',{step:'tool'}));expect(eventListener).not.toHaveBeenCalled();
   act(() => { previous({ chatInstanceId: 'conversation' }); });
   expect(joined).not.toHaveBeenCalled();
   act(() => { sockets[1].callbacks.joined({ chatInstanceId: 'conversation' }); });
@@ -74,6 +79,25 @@ describe('socket admission request budget', () => {
     unmount(); await flush();
     await act(async () => { jest.advanceTimersByTime(90000); });
     expect(global.fetch).toHaveBeenCalledTimes(8);
+  });
+  it('recovers a refused join within seconds without a burst or a transport reconnect', async () => {
+    const {unmount}=mount();act(()=>socket.callbacks.connect());await flush();
+    act(()=>socket.callbacks['session-access-denied']());
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    await act(async()=>{jest.advanceTimersByTime(1000);});await flush();
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    act(()=>socket.callbacks.joined({chatInstanceId:'conversation'}));
+    await act(async()=>{jest.advanceTimersByTime(10000);});await flush();
+    expect(global.fetch).toHaveBeenCalledTimes(2);expect(socket.disconnect).not.toHaveBeenCalled();unmount();
+  });
+  it('retries a 503 with bounded backoff and reloads history once after recovery', async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({ok:false,status:503});
+    const {unmount}=mount();act(()=>socket.callbacks.connect());await flush();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    act(()=>socket.callbacks['session-unavailable']());
+    await act(async()=>{jest.advanceTimersByTime(1000);});await flush();expect(global.fetch).toHaveBeenCalledTimes(2);
+    act(()=>socket.callbacks.joined({chatInstanceId:'conversation'}));expect(joined).toHaveBeenCalledTimes(1);
+    await act(async()=>{jest.advanceTimersByTime(10000);});await flush();expect(global.fetch).toHaveBeenCalledTimes(2);unmount();
   });
   it('stops asking for grants after definitive authorization rejection', async () => {
     (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 403, json: async () => ({ code: 'CONVERSATION_ACCESS_DENIED' }) });

@@ -29,3 +29,5 @@ export { ChatActionTypes, chatReducer, initialChatState } from "./reducers/chatR
 export { conversationVisitorHeaders, reportConversationAccessFailure } from "./utils/conversationVisitorToken";
 
 export { useConversationHistory } from "./hooks/useConversationHistory";
+
+export type ConversationEventSubscription = (event: string, listener: (payload: any) => void) => () => void;

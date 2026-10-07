@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
+import { useSocketHandler } from './chat/useSocketHandler';
 import { useChatMessages } from './useChatMessage';
 import { useConversationSync } from './chat/useConversationSync';
 import { User } from '../types/users';
@@ -8,7 +9,7 @@ jest.mock('./useChatInstance', () => ({ __esModule: true, default: ({ user }: an
   chatInstanceId: 'claimed-conversation', storageKey: `attribution-test:${user.id}`,
 }) }));
 jest.mock('./chat/useConversationSync', () => ({ useConversationSync: jest.fn(() => jest.fn()) }));
-jest.mock('./chat/useSocketHandler', () => ({ useSocketHandler: () => ({ current: null }) }));
+jest.mock('./chat/useSocketHandler', () => ({ useSocketHandler: jest.fn(() => ({ current: null })) }));
 jest.mock('../utils/restoreScopedChatHistory', () => ({ restoreScopedChatHistory: async () => [] }));
 
 it('keeps guest and connected messages on the sent side after login and history reload, without changing authors', async () => {
@@ -50,4 +51,17 @@ it('keeps guest and connected messages on the sent side after login and history 
   restored.unmount();
   jest.clearAllTimers();
   jest.useRealTimers();
+});
+
+it('fans out voice events on the admitted SDK connection and unsubscribes cleanly', async () => {
+ global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>[]});
+ const {result,unmount}=renderHook(()=>useChatMessages({chatModelId:'model',user:{id:'alice',email:'alice@test',token:'token'},setUser:jest.fn()}));
+ const onEvent=(useSocketHandler as jest.Mock).mock.calls.at(-1)[16];
+ const first=jest.fn(),second=jest.fn();
+ const stopFirst=result.current.subscribeToConversationEvent('voice-processing-step',first);
+ const stopSecond=result.current.subscribeToConversationEvent('voice-processing-step',second);
+ act(()=>onEvent('voice-processing-step',{step:'thinking'}));expect(first).toHaveBeenCalledTimes(1);expect(second).toHaveBeenCalledTimes(1);
+ stopFirst();act(()=>onEvent('voice-processing-step',{step:'tool'}));expect(first).toHaveBeenCalledTimes(1);expect(second).toHaveBeenCalledTimes(2);
+ stopSecond();act(()=>onEvent('voice-processing-step',{step:'thinking'}));expect(second).toHaveBeenCalledTimes(2);
+ unmount();await act(async()=>{});
 });

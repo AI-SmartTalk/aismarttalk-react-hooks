@@ -37,13 +37,16 @@ export const useSocketHandler = (
   canvasHistory: ReturnType<typeof useCanvasHistory>,
   messages: FrontChatMessage[],
   debug: boolean = false,
-  onJoined?: () => Promise<void>
+  onJoined?: () => Promise<void>,
+  onEvent?: (event: string, payload: any) => void
 ): any => {
   const identity = JSON.stringify([chatInstanceId, user.id, user.token]);
   const liveIdentity = useRef(identity);
   liveIdentity.current = identity;
   const onJoinedRef = useRef(onJoined);
   onJoinedRef.current = onJoined;
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
   const socketRef = useRef<any>(null);
   const currentInstanceRef = useRef<string>(chatInstanceId);
   const lastMessageReceivedRef = useRef<number>(0);
@@ -159,6 +162,13 @@ export const useSocketHandler = (
       randomizationFactor: 0.5,          // Randomization factor for reconnection delay
     });
 
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempts = 0;
+    const scheduleRetry = () => {
+      if (retryTimer || accessDenied || !socket.connected || liveIdentity.current !== identity || socketRef.current !== socket) return;
+      const delay = Math.min(10_000, 1000 * 2 ** retryAttempts++);
+      retryTimer = setTimeout(() => { retryTimer = undefined; void joinAdmitted(); }, delay);
+    };
     let admitting = false;
     let lastAdmissionAt = 0;
     let joinedThisConnection = false;
@@ -183,10 +193,10 @@ export const useSocketHandler = (
           accessDenied = true;
           reportConversationAccessFailure(chatInstanceId, response.status, failure.code || 'AUTH_REQUIRED'); return;
         }
-        if (!response.ok) return;
+        if (!response.ok) { scheduleRetry(); return; }
         const { socketToken } = await response.json();
         if (socket.connected && liveIdentity.current === identity) socket.emit('join', { chatInstanceId, chatModelId, socketToken });
-      } catch { /* HTTP sync covers socket outages. */ } finally { clearTimeout(timeout); if (admissionTimeout === timeout) admissionTimeout = undefined; admissionController = undefined; admitting = false; }
+      } catch { scheduleRetry(); } finally { clearTimeout(timeout); if (admissionTimeout === timeout) admissionTimeout = undefined; admissionController = undefined; admitting = false; }
     };
     const grantRenewal = setInterval(() => { void joinAdmitted(); }, 45_000);
     socketRef.current = socket;
@@ -201,8 +211,16 @@ export const useSocketHandler = (
     });
 
     on("session-access-denied", () => {
-      // A transport/introspection outage must not become an immediate rejoin loop.
+      joinedThisConnection = false;
+      setSocketStatus('recovering');
       if (Date.now() - lastAdmissionAt >= 5000) void joinAdmitted();
+      else scheduleRetry();
+    });
+
+    on("session-unavailable", () => {
+      joinedThisConnection = false;
+      setSocketStatus('recovering');
+      scheduleRetry();
     });
 
     on("connect_error", (err) => {
@@ -228,11 +246,15 @@ export const useSocketHandler = (
       }
 
       void joinAdmitted();
-      setSocketStatus("connected");
+      setSocketStatus("connecting");
     });
 
     // Listen for server confirmation that join was successful
     on("joined", (data) => {
+      if (data.chatInstanceId !== chatInstanceId) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined; retryAttempts = 0;
+      setSocketStatus('connected');
       if (data.chatInstanceId === chatInstanceId && !joinedThisConnection) {
         joinedThisConnection = true;
         void onJoinedRef.current?.();
@@ -251,6 +273,8 @@ export const useSocketHandler = (
     });
 
     on("disconnect", (reason) => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = undefined;
       joinedThisConnection = false;
       trackEvent("disconnect");
       reconnectCountRef.current++;
@@ -286,7 +310,7 @@ export const useSocketHandler = (
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
       // The socket connect event admits every transport connection, including reconnects.
-      setSocketStatus("connected");
+      setSocketStatus("connecting");
     });
 
     socket.io.on("reconnect_failed", () => {
@@ -469,7 +493,9 @@ export const useSocketHandler = (
       }
     );
 
-    socket.onAny((event) => {
+    socket.onAny((event, payload) => {
+      if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+      onEventRef.current?.(event, payload);
       if (debug) {
         console.log(`🔔 [WebSocket] Socket event: ${event}`);
       }
@@ -481,6 +507,7 @@ export const useSocketHandler = (
 
     return () => {
       clearInterval(grantRenewal);
+      if (retryTimer) clearTimeout(retryTimer);
       admissionController?.abort();
       if (admissionTimeout) clearTimeout(admissionTimeout);
       admissionTimeout = undefined;

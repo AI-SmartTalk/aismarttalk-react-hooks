@@ -475,6 +475,18 @@ export const useChatMessages = ({
     state.messages
   );
 
+  const eventListeners = useRef(new Map<string, Set<(payload: any) => void>>());
+  const subscribeToConversationEvent = useCallback((event: string, listener: (payload: any) => void) => {
+    const listeners = eventListeners.current.get(event) || new Set<(payload: any) => void>();
+    listeners.add(listener); eventListeners.current.set(event, listeners);
+    return () => { listeners.delete(listener); if (!listeners.size) eventListeners.current.delete(event); };
+  }, []);
+  const notifyConversationEvent = useCallback((event: string, payload: any) => {
+    for (const listener of eventListeners.current.get(event) || []) {
+      try { listener(payload); } catch (error) { console.error('[AI Smarttalk] Event subscriber failed', error); }
+    }
+  }, []);
+
   const socketRef = useSocketHandler(
     chatInstanceId,
     user,
@@ -491,7 +503,8 @@ export const useChatMessages = ({
     canvasHistory,
     state.messages,
     debug,
-    fetchMessagesFromApi
+    fetchMessagesFromApi,
+    notifyConversationEvent
   );
 
   const { uploadFile, promoteToKnowledge, isUploading } = useFileUpload({
@@ -1034,6 +1047,7 @@ export const useChatMessages = ({
       }),
     addMessage,
     socketStatus,
+    subscribeToConversationEvent,
     typingUsers,
     conversationStarters,
     activeTool,

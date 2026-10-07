@@ -124,7 +124,7 @@ export const useAISmarttalkChat = ({
   }, [logger, chatModelId, lang, config, debug]);
 
   const { user, setUser, updateUserFromLocalStorage, logout, initialUser } =
-    useUser(config?.user, `chatUser:v2:${chatActiveSelectionKey(config?.apiUrl || defaultApiUrl, chatModelId)}`);
+    useUser(config?.user, `chatUser:v2:${chatActiveSelectionKey(config?.apiUrl || defaultApiUrl, chatModelId, false, config?.storageNamespace)}`);
 
   useEffect(() => {
     logger.log("User state changed:", {
@@ -171,6 +171,7 @@ export const useAISmarttalkChat = ({
     canvases,
     selectConversation,
     socketStatus,
+    subscribeToConversationEvent,
     typingUsers,
     conversationStarters,
     activeTool,
@@ -342,6 +343,7 @@ export const useAISmarttalkChat = ({
     onSend: onSendWithLogging,
     isLoading,
     socketStatus,
+    subscribeToConversationEvent,
     typingUsers,
     conversationStarters,
     suggestions,
