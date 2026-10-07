@@ -1,4 +1,4 @@
-.PHONY: install-chat-hooks release
+.PHONY: install-chat-hooks release update-chatbot-front
 
 install-chat-hooks:
 	node scripts/install-chat-hooks.mjs
@@ -14,3 +14,6 @@ export RELEASE_DRY_RUN = $(DRY_RUN)
 
 release:
 	node scripts/local-release.mjs
+
+update-chatbot-front:
+	node scripts/update-chatbot-front.mjs

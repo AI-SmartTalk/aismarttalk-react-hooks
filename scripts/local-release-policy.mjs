@@ -32,7 +32,7 @@ export function nextVersion(current, published, bump = 'patch', explicit = '') {
 }
 
 export function assertWorkspace(branch, status, allowedPaths = []) {
-  if (branch !== 'main') throw new Error('La release doit être lancée depuis main dans les deux dépôts');
+  if (branch !== 'main') throw new Error('Cette opération doit être lancée depuis main');
   for (const line of status.split('\n').filter(Boolean)) {
     const path = line.slice(3);
     if (!allowedPaths.includes(path)) throw new Error(`Modification locale à conserver avant release : ${path}`);
