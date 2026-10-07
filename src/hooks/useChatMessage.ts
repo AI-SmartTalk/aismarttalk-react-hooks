@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders, reportConversationAccessFailure } from "../utils/conversationVisitorToken";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   ChatActionTypes,
@@ -81,7 +82,7 @@ export const useChatMessages = ({
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const { chatInstanceId, selectInstance, getNewInstance, storageKey, isChanging: isChangingInstance, error: instanceError, retry: retryChatSession } = useChatInstance(
+  const { chatInstanceId, selectInstance, getNewInstance, storageKey, isChanging: isChangingInstance, error: instanceError, retry: retryChatSession, beginAnonymousSession } = useChatInstance(
     { chatModelId, lang, config, isAdmin: isAdmin, user }
   );
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
@@ -277,6 +278,7 @@ export const useChatMessages = ({
     try {
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
+        ...conversationVisitorHeaders(chatInstanceId),
       };
 
       if (finalApiToken) {
@@ -601,6 +603,7 @@ export const useChatMessages = ({
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         appToken: finalApiToken,
+        ...conversationVisitorHeaders(chatInstanceId),
       };
 
       if (user?.token) {
@@ -639,12 +642,16 @@ export const useChatMessages = ({
 
       if (!stillCurrent()) return;
       if (!response.ok) {
-        const { message, errorType, statusCode } = handleApiError(
+        if ([401, 403].includes(response.status)) {
+          const failure = await response.clone().json().catch(() => ({}));
+          if (response.status === 401 || failure.code === 'CONVERSATION_ACCESS_DENIED') reportConversationAccessFailure(chatInstanceId, response.status, failure.code || 'AUTH_REQUIRED', messageText);
+        }
+        const { message: refusalMessage, errorType, statusCode } = handleApiError(
           response.status,
           `Error sending message: ${response.status}`
         );
         
-        throw new Error(`${errorType} error (${statusCode}): ${message}`);
+        throw new Error(`${errorType} error (${statusCode}): ${refusalMessage}`);
       }
 
       clearError();
@@ -1039,6 +1046,7 @@ export const useChatMessages = ({
     isLoading: state.isLoading || isChangingInstance || (!chatInstanceId && !instanceError),
     instanceError,
     retryChatSession,
+    beginAnonymousSession,
     isChangingInstance,
     onSend,
     selectConversation,

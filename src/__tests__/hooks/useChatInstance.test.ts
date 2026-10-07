@@ -1,11 +1,13 @@
 import React from 'react';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import useChatInstance, { chatInstanceStorageKey } from '../../hooks/useChatInstance';
+import useChatInstance, { chatInstanceStorageKey, chatActiveSelectionKey } from '../../hooks/useChatInstance';
 
 const base = { chatModelId: 'assistant', lang: 'fr', config: { apiUrl: 'http://core.test' } };
 const account = { id: 'alice', email: 'alice@example.test', token: 'valid-alice' };
 const anonymous = { id: 'anonymous', email: 'anonymous@example.com' };
 const key = (user?: typeof account | typeof anonymous) => chatInstanceStorageKey('http://core.test', 'assistant', user);
+const activeKey = () => chatActiveSelectionKey('http://core.test', 'assistant');
+const publish = (id: string) => { const value = JSON.stringify({ id, identity: 'visitor' }); localStorage.setItem(activeKey(), value); window.dispatchEvent(new StorageEvent('storage', { key: activeKey(), newValue: value })); };
 const response = (id: string) => ({ ok: true, status: 200, json: async () => ({ chatInstanceId: id }) });
 const refusal = (status: number, code: string) => ({ ok: false, status, json: async () => ({ code }) });
 const request = jest.fn();
@@ -43,13 +45,14 @@ it('migrates legacy storage only after continuation admission', async () => {
   await waitFor(() => expect(result.current.chatInstanceId).toBe('legacy'));
   expect(localStorage.getItem(key())).toBe('legacy');
 });
-it.each([[403, 'CONVERSATION_ACCESS_DENIED'], [404, 'NOT_FOUND']])('replaces only an unowned or missing instance (%s)', async (status, code) => {
+it.each([[403, 'CONVERSATION_ACCESS_DENIED'], [404, 'NOT_FOUND']])('keeps an inaccessible selection and requires an explicit recovery (%s)', async (status, code) => {
   localStorage.setItem(key(account), 'old');
-  request.mockResolvedValueOnce(refusal(status as number, code as string)).mockResolvedValueOnce(response('new'));
+  request.mockResolvedValue(refusal(status as number, code as string));
   const { result } = renderHook(() => useChatInstance({ ...base, user: account }));
-  await waitFor(() => expect(result.current.chatInstanceId).toBe('new'));
-  expect(request).toHaveBeenCalledTimes(2);
-  expect(JSON.parse(request.mock.calls[1][1].body).resumeOnly).toBeUndefined();
+  await waitFor(() => expect(result.current.error).toMatchObject({ code, conversationId: 'old' }));
+  expect(result.current.chatInstanceId).toBe('');
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem(key(account))).toBe('old');
 });
 it.each([[401, 'AUTH_REQUIRED'], [403, 'BANNED'], [429, 'RATE_LIMITED'], [503, 'UNAVAILABLE']])('does not bypass refusal %s by creating a conversation', async (status, code) => {
   localStorage.setItem(key(account), 'old'); request.mockResolvedValue(refusal(status as number, code as string));
@@ -75,21 +78,46 @@ it('keeps the admitted instance when manual creation fails', async () => {
   expect(result.current.chatInstanceId).toBe('created');
   expect(localStorage.getItem(key(account))).toBe('created');
 });
-it('covers auto-login → logout → anonymous conversation → refresh → auto-login', async () => {
+it('logout creates a fresh guest thread, and auto-login after reload continues that same thread', async () => {
+  localStorage.setItem(key(anonymous), 'ancient-guest');
+  localStorage.setItem(key(account), 'old-account');
   request.mockImplementation(async (_url, options) => {
     const body = JSON.parse(options.body);
-    return response(body.chatInstanceId || (options.headers.Authorization ? 'alice-conversation' : 'visitor-conversation'));
+    if (body.chatInstanceId) return response(body.chatInstanceId);
+    return { ...response('new-guest'), json: async () => ({ chatInstanceId: 'new-guest', visitorToken: 'guest-proof' }) };
   });
   const first = renderHook(({ user }) => useChatInstance({ ...base, user }), { initialProps: { user: account as typeof account | typeof anonymous } });
-  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('alice-conversation'));
+  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('old-account'));
+  act(() => first.result.current.beginAnonymousSession());
   first.rerender({ user: anonymous });
-  expect(first.result.current.chatInstanceId).toBe('');
-  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('visitor-conversation'));
+  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('new-guest'));
+  expect(JSON.parse(request.mock.calls[1][1].body).chatInstanceId).toBeUndefined();
   first.unmount();
   const refreshed = renderHook(() => useChatInstance({ ...base, user: account }));
-  await waitFor(() => expect(refreshed.result.current.chatInstanceId).toBe('alice-conversation'));
-  expect(localStorage.getItem(key(anonymous))).toBe('visitor-conversation');
-  expect(JSON.parse(request.mock.calls[2][1].body)).toMatchObject({ chatInstanceId: 'alice-conversation', resumeOnly: true });
+  await waitFor(() => expect(refreshed.result.current.chatInstanceId).toBe('new-guest'));
+  expect(JSON.parse(request.mock.calls[2][1].body)).toMatchObject({ chatInstanceId: 'new-guest', resumeOnly: true, claimAnonymous: true });
+  expect(request.mock.calls[2][1].headers['x-chat-visitor-token']).toBe('guest-proof');
+});
+it('an expired identity locks the account conversation, and reauthentication resumes it', async () => {
+  request.mockImplementation(async (_url, options) => options.headers.Authorization ? response('owned') : refusal(401, 'AUTH_REQUIRED'));
+  const { result, rerender } = renderHook(({ user }) => useChatInstance({ ...base, user }), { initialProps: { user: account as typeof account | typeof anonymous } });
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('owned'));
+  rerender({ user: anonymous });
+  await waitFor(() => expect(result.current.error).toMatchObject({ code: 'AUTH_REQUIRED', conversationId: 'owned' }));
+  expect(result.current.chatInstanceId).toBe('');
+  expect(JSON.parse(request.mock.calls[1][1].body).chatInstanceId).toBe('owned');
+  rerender({ user: account });
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('owned'));
+  expect(request).toHaveBeenCalledTimes(3);
+});
+it('does not replace a locked conversation when another account signs in', async () => {
+  request.mockResolvedValueOnce(response('alice-thread')).mockResolvedValue(refusal(403, 'CONVERSATION_ACCESS_DENIED'));
+  const { result, rerender } = renderHook(({ user }) => useChatInstance({ ...base, user }), { initialProps: { user: account } });
+  await waitFor(() => expect(result.current.chatInstanceId).toBe('alice-thread'));
+  rerender({ user: { ...account, id: 'bob', token: 'bob-token' } });
+  await waitFor(() => expect(result.current.error).toMatchObject({ conversationId: 'alice-thread', code: 'CONVERSATION_ACCESS_DENIED' }));
+  expect(result.current.chatInstanceId).toBe('');
+  expect(request).toHaveBeenCalledTimes(2);
 });
 it('ignores a late response after switching identity even if fetch ignores abort', async () => {
   let finish!: (data: any) => void;
@@ -124,8 +152,8 @@ it('validates a cross-tab selection before accepting it', async () => {
   const { result } = renderHook(() => useChatInstance(base));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
   request.mockResolvedValue(response('selected'));
-  localStorage.setItem(key(), 'selected');
-  act(() => { window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'selected' })); });
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'selected', identity: 'visitor' }));
+  act(() => { publish('selected'); });
   await waitFor(() => expect(result.current.chatInstanceId).toBe('selected'));
 });
 
@@ -146,21 +174,22 @@ it('rejects an incompatible API resume response without publishing or retrying',
 it('adopts a shared selection without echoing it to other tabs', async () => {
   const { result } = renderHook(() => useChatInstance(base));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
-  localStorage.setItem(key(), 'shared');
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'shared', identity: 'visitor' }));
   (localStorage.setItem as jest.Mock).mockClear();
   request.mockResolvedValue(response('shared'));
-  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'shared' })));
+  act(() => publish('shared'));
+  (localStorage.setItem as jest.Mock).mockClear();
   await waitFor(() => expect(result.current.chatInstanceId).toBe('shared'));
   expect(localStorage.setItem).not.toHaveBeenCalled();
 });
 it('ignores queued storage events superseded by a newer selection', async () => {
   const { result } = renderHook(() => useChatInstance(base));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
-  localStorage.setItem(key(), 'latest');
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'latest', identity: 'visitor' }));
   request.mockClear().mockResolvedValue(response('latest'));
-  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'stale' })));
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: activeKey(), newValue: JSON.stringify({ id: 'stale', identity: 'visitor' }) })));
   expect(request).not.toHaveBeenCalled();
-  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'latest' })));
+  act(() => publish('latest'));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('latest'));
   expect(request).toHaveBeenCalledTimes(1);
 });
@@ -169,21 +198,21 @@ it('does not accept a storage resume that finishes after a newer selection', asy
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
   let finish!: (data: any) => void;
   request.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
-  localStorage.setItem(key(), 'first');
-  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'first' })));
-  localStorage.setItem(key(), 'newer');
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'first', identity: 'visitor' }));
+  act(() => publish('first'));
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'newer', identity: 'visitor' }));
   await act(async () => { finish(response('first')); });
   expect(result.current.chatInstanceId).toBe('created');
-  expect(localStorage.getItem(key())).toBe('newer');
+  expect(JSON.parse(localStorage.getItem(activeKey())!).id).toBe('newer');
 });
 
 it('does not create in response to an inaccessible cross-tab selection', async () => {
   const { result } = renderHook(() => useChatInstance(base));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('created'));
-  localStorage.setItem(key(), 'unowned');
+  localStorage.setItem(activeKey(), JSON.stringify({ id: 'unowned', identity: 'visitor' }));
   request.mockClear().mockResolvedValue(refusal(403, 'CONVERSATION_ACCESS_DENIED'));
-  act(() => window.dispatchEvent(new StorageEvent('storage', { key: key(), newValue: 'unowned' })));
+  act(() => publish('unowned'));
   await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
   expect(request).toHaveBeenCalledTimes(1);
-  expect(result.current.chatInstanceId).toBe('created');
+  expect(result.current.chatInstanceId).toBe('');
 });

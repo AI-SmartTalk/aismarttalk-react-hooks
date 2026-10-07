@@ -605,3 +605,20 @@ la reprise de la mise à jour frontend. Après un arrêt brutal, vérifier que l
 processus est terminé avant de retirer uniquement le verrou
 `.git/aist-local-release.lock`. Les fichiers préparés restent disponibles en
 cas d’échec avant publication pour inspection et correction.
+
+### Web conversation lifecycle (1.6.4)
+
+An active conversation survives authentication changes. Logging out voluntarily
+starts a fresh anonymous conversation; logging in on an anonymous conversation
+claims that same conversation with its server-issued visitor capability.
+Expired authentication locks the active selection and requires sign-in. A denied
+or missing conversation is never replaced automatically. `sessionError` includes
+`status`, `code`, `conversationId` and, for a refused send, `pendingMessage`.
+
+Browser credentials and active selections are scoped by API, assistant and host
+site. Storage events are admitted without being republished. Anonymous requests
+use `x-chat-visitor-token`; the SDK also obtains a short-lived signed socket room
+grant from the core. Requires the core conversation-session API and the matching
+WS admission service. The widget vendors 1.6.4 locally; publishing to npm is a
+separate release action. Browser checks are in `scripts/verify-cross-tab-resume.cjs`
+and `scripts/verify-conversation-lifecycle.cjs` (Puppeteer must be available).

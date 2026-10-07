@@ -214,3 +214,17 @@ describe('useUser', () => {
     consoleErrorSpy.mockRestore();
   });
 });
+
+describe('scoped and host-seeded identity', () => {
+  it('allows voluntary logout from a host-provided identity', () => {
+    const { result } = renderHook(() => useUser({id:'alice',email:'alice@example.test',token:'host-token'}, 'host-scope'));
+    act(() => { result.current.logout(); });
+    expect(result.current.user.id).toBe('anonymous');
+  });
+  it('does not carry a preceding assistant account into a new scope', () => {
+    const { result, rerender } = renderHook(({ scope, seed }) => useUser(seed, scope), {initialProps:{scope:'scope-a',seed:{id:'alice',email:'alice@example.test',token:'host-token'} as User | undefined}});
+    expect(result.current.user.id).toBe('alice');
+    rerender({scope:'scope-b',seed:undefined});
+    expect(result.current.user.id).toBe('anonymous');
+  });
+});

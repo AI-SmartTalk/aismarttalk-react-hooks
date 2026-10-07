@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders } from "../../utils/conversationVisitorToken";
 import { useState } from 'react';
 import { CanvasFileType, CanvasPurpose, CanvasStatus, UploadResponse } from '../../types/canvas';
 import { defaultApiUrl } from '../../types/config';
@@ -113,6 +114,7 @@ export function useFileUpload({
   const uploadViaLegacy = async (file: File, purpose: CanvasPurpose): Promise<Response> => {
     const headers: Record<string, string> = {
       appToken: finalApiToken,
+      ...conversationVisitorHeaders(chatInstanceId),
     };
 
     if (user?.token) {

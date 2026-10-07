@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders } from "./conversationVisitorToken";
 /** Migrate legacy browser history only after write admission for each instance.
  * Inbox read permission and cached owner labels are not ownership credentials. */
 export async function restoreScopedChatHistory(options: {
@@ -24,7 +25,7 @@ export async function restoreScopedChatHistory(options: {
       const item = remaining[index++];
       try {
         const response = await fetch(`${options.apiUrl}/api/chat/createInstance`, {
-          method: 'POST', headers, signal: options.signal,
+          method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(item.id) }, signal: options.signal,
           body: JSON.stringify({ chatModelId: options.modelId, chatInstanceId: item.id, resumeOnly: true }),
         });
         if (response.ok) {

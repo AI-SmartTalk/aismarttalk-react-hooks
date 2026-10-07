@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders, reportConversationAccessFailure } from "../../utils/conversationVisitorToken";
 import { useCallback, useEffect, useRef } from "react";
 
 interface SyncOptions {
@@ -34,7 +35,7 @@ export function useConversationSync(options: SyncOptions) {
     current.promise = Promise.resolve().then(async () => {
       try {
         if (controller.signal.aborted || session.current !== current || current.denied) return;
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string> = conversationVisitorHeaders(config.chatInstanceId);
         if (config.apiToken) headers.appToken = config.apiToken;
         if (config.userToken) {
           headers.Authorization = `Bearer ${config.userToken}`;
@@ -48,6 +49,10 @@ export function useConversationSync(options: SyncOptions) {
         });
         if ([401, 403, 404].includes(response.status)) {
           current.denied = true;
+          if (session.current === current && !controller.signal.aborted && [401, 403].includes(response.status)) {
+            const failure = await response.json().catch(() => ({}));
+            reportConversationAccessFailure(config.chatInstanceId, response.status, failure.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'CONVERSATION_ACCESS_DENIED'));
+          }
           return;
         }
         if (!response.ok) throw new Error(`History sync HTTP ${response.status}`);

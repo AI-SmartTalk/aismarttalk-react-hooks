@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { conversationVisitorHeaders, storeConversationVisitorToken } from "../utils/conversationVisitorToken";
 import { defaultApiUrl } from "../types/config";
 
 type Identity = { token?: string; id?: string; email?: string; name?: string };
@@ -25,12 +26,20 @@ export function chatInstanceStorageKey(apiUrl: string, modelId: string, user?: I
   return `chatInstance:v2:${JSON.stringify([apiUrl.replace(/\/$/, ''), modelId, admin, chatIdentity(user), site])}`;
 }
 
+export function chatActiveSelectionKey(apiUrl: string, modelId: string, admin = false): string {
+  const parts = JSON.parse(chatInstanceStorageKey(apiUrl, modelId, undefined, admin).slice('chatInstance:v2:'.length));
+  parts.splice(3, 1);
+  return `chatActive:v3:${JSON.stringify(parts)}`;
+}
+type Selection = { id: string; identity: string; fresh?: boolean };
+
 /** One owner for instance restoration, selection and creation. Never expose an
  * instance from another identity before the server has admitted continuation. */
 export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = false }: UseChatInstanceProps) => {
   const apiUrl = (config?.apiUrl || defaultApiUrl).replace(/\/$/, '');
   const apiToken = config?.apiToken || '';
   const storageKey = chatInstanceStorageKey(apiUrl, chatModelId, user, isAdmin);
+  const selectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin);
   const legacyKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin' : '-standard'}]`;
   const [active, setActive] = useState({ scope: '', id: '' });
   const [error, setError] = useState<Error | null>(null);
@@ -40,6 +49,11 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const pending = useRef<{ key: string; controller: AbortController; promise: Promise<string | null> } | null>(null);
   const mounted = useRef(true);
   const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+  const readSelection = (): Selection | null => {
+    try { const value = JSON.parse(read(selectionKey) || 'null');
+      return value && typeof value.id === 'string' && typeof value.identity === 'string' ? value : null;
+    } catch { return null; }
+  };
   const store = (key: string, id: string) => { try { localStorage.setItem(key, id); } catch { /* Storage may be unavailable */ } };
 
   const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true): Promise<string | null> => {
@@ -57,27 +71,24 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     if (identity?.token) { headers.Authorization = `Bearer ${identity.token}`; headers['x-use-chatbot-auth'] = 'true'; }
     const url = isAdmin ? `${apiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` : `${apiUrl}/api/chat/createInstance`;
     const post = (id?: string) => fetch(url, {
-      method: 'POST', headers, signal: controller.signal,
+      method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || '') }, signal: controller.signal,
       body: JSON.stringify({ chatModelId, lang, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
-        ...(id ? { resumeOnly: true, chatInstanceId: id } : {}) }),
+        ...(id ? { resumeOnly: true, chatInstanceId: id, ...(identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
     });
     const timeout = setTimeout(() => controller.abort(), 10_000);
     const promise = (async () => {
       try {
         const previousScope = `chatInstance:v2:${JSON.stringify([apiUrl, chatModelId, isAdmin, chatIdentity(identity)])}`;
-        const saved = fresh ? null : requestedId || read(scope) || read(previousScope) || read(legacyKey);
+        const selection = readSelection();
+        const saved = fresh || selection?.fresh ? null : requestedId || selection?.id || read(scope) || read(previousScope) || read(legacyKey);
         let resuming = Boolean(saved);
         let response = isAdmin && saved
           ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
           : await post(saved || undefined);
         if (!response.ok && saved && !isAdmin) {
           const failure = await response.json().catch(() => ({}));
-          // Only a missing/unowned instance permits a fresh conversation. An
-          // expired identity, ban, quota refusal or outage must not be bypassed.
-          if (publish && (response.status === 404 || (response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED'))) {
-            resuming = false;
-            response = await post();
-          } else throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code });
+          // Access loss is a locked selection, never an implicit new thread.
+          throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, conversationId: saved });
         }
         if (!response.ok) { const failure = await response.json().catch(() => ({})); throw Object.assign(new Error(`Failed to create chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code }); }
         const data = await response.json();
@@ -91,14 +102,21 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
         if (!current()) return null;
         // Receiving a storage event must not publish it back to other tabs.
         // Late events and responses must not override a newer shared selection.
-        if (!publish && read(scope) !== requestedId) return null;
-        if (publish) store(scope, data.chatInstanceId);
+        if (!publish && readSelection()?.id !== requestedId) return null;
+        if (typeof data.visitorToken === 'string') storeConversationVisitorToken(data.chatInstanceId, data.visitorToken);
+        if (publish) {
+          store(scope, data.chatInstanceId);
+          store(selectionKey, JSON.stringify({ id: data.chatInstanceId, identity: chatIdentity(identity) }));
+        }
         // Legacy storage is never written again; each identity has its own key.
         try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
         if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
         return data.chatInstanceId;
       } catch (cause) {
-        if (mounted.current && context.current.epoch === epoch && pending.current?.controller === controller) setError(cause instanceof Error ? cause : new Error('Failed to initialize chat instance'));
+        if (mounted.current && context.current.epoch === epoch && pending.current?.controller === controller) {
+          setError(cause instanceof Error ? cause : new Error('Failed to initialize chat instance'));
+          if ([401, 403].includes((cause as any)?.status)) setActive({ scope, id: '' });
+        }
         return null;
       } finally {
         clearTimeout(timeout);
@@ -107,16 +125,22 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     })();
     pending.current = { key, controller, promise };
     return promise;
-  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey]);
+  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey]);
 
   const getNewInstance = useCallback((identity?: Identity) => resolve(identity, undefined, true), [resolve]);
   const selectInstance = useCallback((id: string) => resolve(undefined, id), [resolve]);
+  const beginAnonymousSession = useCallback(() => {
+    pending.current?.controller.abort();
+    context.current.epoch++;
+    setActive({ scope: '', id: '' });
+    store(selectionKey, JSON.stringify({ id: '', identity: 'visitor', fresh: true }));
+  }, [selectionKey]);
   const cleanup = useCallback(async () => {
     pending.current?.controller.abort();
     context.current.epoch++;
     setActive({ scope: storageKey, id: '' });
     try { localStorage.removeItem(storageKey); } catch { /* optional */ }
-  }, [storageKey]);
+  }, [storageKey, selectionKey]);
 
   useEffect(() => {
     mounted.current = true;
@@ -124,19 +148,33 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     return () => { mounted.current = false; pending.current?.controller.abort(); };
   }, [storageKey, user?.token, apiToken, resolve]);
 
-  // Cross-tab instance selection stays scoped to the active identity.
+  useEffect(() => {
+    const denied = (event: Event) => {
+      const failure = (event as CustomEvent).detail;
+      if (!failure || readSelection()?.id !== failure.conversationId) return;
+      pending.current?.controller.abort(); context.current.epoch++;
+      setActive({ scope: storageKey, id: '' }); setChanging(false);
+      setError(Object.assign(new Error('Authentication or conversation access required'), failure));
+    };
+    window.addEventListener('aismarttalk:conversation-access-failure', denied);
+    return () => window.removeEventListener('aismarttalk:conversation-access-failure', denied);
+  }, [selectionKey, storageKey]);
+
+  // A shared active selection is separate from per-identity history. Receiving
+  // it never echoes it back, and stale events/responses cannot replace it.
   useEffect(() => {
     const listener = (event: StorageEvent) => {
-      if (event.key === storageKey && event.newValue && event.newValue !== active.id && read(storageKey) === event.newValue) {
-        void resolve(undefined, event.newValue, false, false);
-      }
+      if (event.key !== selectionKey || read(selectionKey) !== event.newValue) return;
+      const selection = readSelection();
+      if (!selection || selection.fresh || !selection.id || selection.id === active.id) return;
+      void resolve(undefined, selection.id, false, false);
     };
     window.addEventListener('storage', listener);
     return () => window.removeEventListener('storage', listener);
-  }, [storageKey, active.id, resolve]);
+  }, [selectionKey, active.id, resolve]);
 
   return { chatInstanceId: active.scope === storageKey ? active.id : '', getNewInstance, selectInstance,
     setChatInstanceId: selectInstance, error, isChanging: changing, retry: resolve,
-    storageKey, cleanup };
+    storageKey, selectionKey, beginAnonymousSession, cleanup };
 };
 export default useChatInstance;

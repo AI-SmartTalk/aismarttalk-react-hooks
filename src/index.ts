@@ -26,3 +26,4 @@ export type {
 } from "./types/canvas";
 export type { CanvasFullContent, LineUpdate, CanvasLiveUpdate } from "./hooks/fileUpload/useFileUpload";
 export { ChatActionTypes, chatReducer, initialChatState } from "./reducers/chatReducers";
+export { conversationVisitorHeaders, reportConversationAccessFailure } from "./utils/conversationVisitorToken";

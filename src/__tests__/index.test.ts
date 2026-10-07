@@ -28,6 +28,6 @@ describe('index barrel exports', () => {
     expect(indexExports.ChatActionTypes).toBeDefined();
     expect(typeof indexExports.chatReducer).toBe('function');
     expect(indexExports.initialChatState).toBeDefined();
-    expect(Object.keys(indexExports).sort()).toEqual([...hooks, 'ChatActionTypes', 'chatReducer', 'initialChatState'].sort());
+    expect(Object.keys(indexExports).sort()).toEqual([...hooks, 'conversationVisitorHeaders', 'reportConversationAccessFailure', 'ChatActionTypes', 'chatReducer', 'initialChatState'].sort());
   });
 });

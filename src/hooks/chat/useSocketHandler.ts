@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders, reportConversationAccessFailure } from "../../utils/conversationVisitorToken";
 import {
   Dispatch,
   SetStateAction,
@@ -157,6 +158,27 @@ export const useSocketHandler = (
       randomizationFactor: 0.5,          // Randomization factor for reconnection delay
     });
 
+    let admitting = false;
+    let lastAdmissionAt = 0;
+    const joinAdmitted = async () => {
+      if (admitting || !socket.connected || liveIdentity.current !== identity) return;
+      admitting = true;
+      lastAdmissionAt = Date.now();
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json', ...conversationVisitorHeaders(chatInstanceId) };
+        if (user?.token) { headers.Authorization = `Bearer ${user.token}`; headers['x-use-chatbot-auth'] = 'true'; }
+        const response = await fetch(`${finalApiUrl}/api/chat/socket-token`, { method: 'POST', headers, body: JSON.stringify({ chatInstanceId, chatModelId }) });
+        if (liveIdentity.current !== identity || socketRef.current !== socket) return;
+        if ([401, 403].includes(response.status)) {
+          const failure = await response.json().catch(() => ({}));
+          reportConversationAccessFailure(chatInstanceId, response.status, failure.code || 'AUTH_REQUIRED'); return;
+        }
+        if (!response.ok) return;
+        const { socketToken } = await response.json();
+        if (socket.connected && liveIdentity.current === identity) socket.emit('join', { chatInstanceId, chatModelId, socketToken });
+      } catch { /* HTTP sync covers socket outages. */ } finally { admitting = false; }
+    };
+    const grantRenewal = setInterval(() => { void joinAdmitted(); }, 45_000);
     socketRef.current = socket;
     socketRef.current._lastMessageTime = lastMessageReceivedRef.current;
     socketRef.current.lastMessageReceivedRef = lastMessageReceivedRef;
@@ -166,6 +188,11 @@ export const useSocketHandler = (
     const on = (event: string, listener: (...args: any[]) => void) => socket.on(event, (...args: any[]) => {
       if (liveIdentity.current !== identity || socketRef.current !== socket) return;
       listener(...args);
+    });
+
+    on("session-access-denied", () => {
+      // A transport/introspection outage must not become an immediate rejoin loop.
+      if (Date.now() - lastAdmissionAt >= 5000) void joinAdmitted();
     });
 
     on("connect_error", (err) => {
@@ -190,7 +217,7 @@ export const useSocketHandler = (
         console.log(`✅ [WebSocket] Socket connected successfully in ${connectionTime}ms`);
       }
 
-      socket.emit("join", { chatInstanceId });
+      void joinAdmitted();
       setSocketStatus("connected");
     });
 
@@ -244,7 +271,7 @@ export const useSocketHandler = (
       if (debug) {
         console.log("✅ [WebSocket] Socket reconnected successfully, rejoining channels");
       }
-      socket.emit("join", { chatInstanceId });
+      void joinAdmitted();
       setSocketStatus("connected");
     });
 
@@ -452,6 +479,7 @@ export const useSocketHandler = (
     }
 
     return () => {
+      clearInterval(grantRenewal);
       if (socket) {
         if (debug) {
           console.log("\n🧹 [WebSocket] Cleaning up socket on unmount/effect cleanup");

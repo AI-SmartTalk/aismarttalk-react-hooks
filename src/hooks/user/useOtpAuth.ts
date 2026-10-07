@@ -1,3 +1,4 @@
+import { conversationVisitorHeaders } from "../../utils/conversationVisitorToken";
 import { useState } from "react";
 import { defaultApiUrl } from '../../types/config';
 /**
@@ -117,7 +118,7 @@ export const useOtpAuth = ({
     try {
       const response = await fetch(`${finalApiUrl}/api/auth/otp-auth`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...conversationVisitorHeaders(chatInstanceId || '') },
         body: JSON.stringify({ email, code, chatInstanceId, chatModelId }),
       });
       

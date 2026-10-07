@@ -1,3 +1,5 @@
+import { defaultApiUrl } from "../types/config";
+import { chatActiveSelectionKey } from "./useChatInstance";
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { ChatConfig, defaultFeatures } from "../types/chatConfig";
 import { ChatModel } from "../types/chatModel";
@@ -122,7 +124,7 @@ export const useAISmarttalkChat = ({
   }, [logger, chatModelId, lang, config, debug]);
 
   const { user, setUser, updateUserFromLocalStorage, logout, initialUser } =
-    useUser(config?.user);
+    useUser(config?.user, `chatUser:v2:${chatActiveSelectionKey(config?.apiUrl || defaultApiUrl, chatModelId)}`);
 
   useEffect(() => {
     logger.log("User state changed:", {
@@ -182,6 +184,7 @@ export const useAISmarttalkChat = ({
     updateChatTitle,
     createNewChat,
     instanceError,
+    beginAnonymousSession,
     retryChatSession,
     uploadFile,
     promoteToKnowledge,
@@ -285,6 +288,7 @@ export const useAISmarttalkChat = ({
       }
 
       logger.log("Executing logout");
+      beginAnonymousSession();
       logout();
 
       // Instance restoration belongs to useChatInstance, which reacts to the
@@ -300,7 +304,7 @@ export const useAISmarttalkChat = ({
       );
       logger.groupEnd();
     }
-  }, [logout, createNewChat, selectConversation, chatInstanceId, user, logger]);
+  }, [logout, beginAnonymousSession, chatInstanceId, user, logger]);
 
   const onSendWithLogging = useCallback(
     (messageText: string) => {
@@ -332,6 +336,7 @@ export const useAISmarttalkChat = ({
     setUser,
     updateUserFromLocalStorage,
     logout: handleLogout,
+    beginAnonymousSession,
 
     messages,
     onSend: onSendWithLogging,
