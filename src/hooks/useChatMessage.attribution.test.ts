@@ -4,8 +4,8 @@ import { useConversationSync } from './chat/useConversationSync';
 import { User } from '../types/users';
 import { FrontChatMessage } from '../types/chat';
 
-jest.mock('./useChatInstance', () => ({ __esModule: true, default: () => ({
-  chatInstanceId: 'claimed-conversation', storageKey: 'attribution-test',
+jest.mock('./useChatInstance', () => ({ __esModule: true, default: ({ user }: any) => ({
+  chatInstanceId: 'claimed-conversation', storageKey: `attribution-test:${user.id}`,
 }) }));
 jest.mock('./chat/useConversationSync', () => ({ useConversationSync: jest.fn(() => jest.fn()) }));
 jest.mock('./chat/useSocketHandler', () => ({ useSocketHandler: () => ({ current: null }) }));
@@ -13,6 +13,10 @@ jest.mock('../utils/restoreScopedChatHistory', () => ({ restoreScopedChatHistory
 
 it('keeps guest and connected messages on the sent side after login and history reload, without changing authors', async () => {
   jest.useFakeTimers();
+  const storage = new Map<string, string>();
+  (localStorage.getItem as jest.Mock).mockImplementation((key: string) => storage.get(key) ?? null);
+  (localStorage.setItem as jest.Mock).mockImplementation((key: string, value: string) => storage.set(key, value));
+  (localStorage.removeItem as jest.Mock).mockImplementation((key: string) => storage.delete(key));
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => [] });
   const guest = { id: 'sys_anonymous', email: 'visitor@example.test', name: 'Visitor', role: 'ANONYMOUS' };
   const account = { id: 'alice', email: 'alice@example.test', name: 'Alice', token: 'token' };
@@ -27,13 +31,23 @@ it('keeps guest and connected messages on the sent side after login and history 
   const history = () => (useConversationSync as jest.Mock).mock.calls.at(-1)[0].onHistory;
   await act(async () => history()({ connectedOrAnonymousUser: guest, messages: [row('guest-message', guest), row('bot-reply', bot)] }));
   expect(Object.fromEntries(result.current.messages.map(m => [m.id, m.isSent]))).toEqual({ 'guest-message': true, 'bot-reply': false });
+  expect(result.current.conversations).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('chat-conversations:attribution-test:sys_anonymous')!)[0].id).toBe('claimed-conversation');
   rerender({ user: account });
   const messages = [row('guest-message', guest), row('bot-reply', bot), row('account-message', account), row('agent-message', account, { sentAsAgent: true }), row('other-account-message', { id: 'bob', email: 'bob@example.test', name: 'Bob', role: 'CONNECTED_USER' })];
   await act(async () => history()({ connectedOrAnonymousUser: guest, messages }));
   expect(Object.fromEntries(result.current.messages.map(m => [m.id, m.isSent]))).toEqual({ 'guest-message': true, 'bot-reply': false, 'account-message': true, 'agent-message': false, 'other-account-message': false });
   expect(result.current.messages.find(m => m.id === 'guest-message')?.user).toEqual(guest);
   expect(result.current.messages.find(m => m.id === 'account-message')?.user).toEqual(account);
+  expect(result.current.conversations).toHaveLength(1);
+  expect(result.current.conversations[0].messages).toHaveLength(messages.length);
+  expect(JSON.parse(localStorage.getItem('chat-conversations:attribution-test:alice')!)[0].messages).toHaveLength(messages.length);
   unmount();
+  const restored = renderHook(() => useChatMessages({ chatModelId: 'model', user: account, setUser: jest.fn(), config: { apiUrl: 'http://api.test' } }));
+  await act(async () => {});
+  expect(restored.result.current.conversations).toHaveLength(1);
+  expect(restored.result.current.conversations[0].id).toBe('claimed-conversation');
+  restored.unmount();
   jest.clearAllTimers();
   jest.useRealTimers();
 });

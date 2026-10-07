@@ -409,6 +409,26 @@ export const useChatMessages = ({
     return () => { clearTimeout(timeout); controller.abort(); };
   }, [storageKey, chatInstanceId, finalApiUrl, finalApiToken, chatModelId, user?.token]);
 
+  // Every admitted conversation with a visitor message belongs in the scoped
+  // index, including the first automatic session and messages loaded by HTTP
+  // or streaming. Creation/renaming alone must not own history registration.
+  useEffect(() => {
+    if (!chatInstanceId) return;
+    const messages = state.messages.filter(message => message.chatInstanceId === chatInstanceId);
+    const firstSent = messages.find(message => shouldMessageBeSent(message, user?.id, user?.email));
+    if (!firstSent) return;
+    const title = chatTitle && chatTitle !== '💬' ? chatTitle : firstSent.text.slice(0, 50);
+    const latest = messages.reduce((time, message) => Math.max(time,
+      Date.parse(message.updated_at || message.created_at) || 0), 0);
+    const entry = { id: chatInstanceId, title, messages, lastUpdated: new Date(latest).toISOString() };
+    saveConversationHistory(chatInstanceId, title, messages);
+    setConversations(previous => {
+      const updated = [entry, ...previous.filter(item => item.id !== chatInstanceId)];
+      try { localStorage.setItem(`chat-conversations:${storageKey}`, JSON.stringify(updated)); } catch { /* storage may be unavailable */ }
+      return updated;
+    });
+  }, [chatInstanceId, storageKey, state.messages, chatTitle, user?.id, user?.email]);
+
   const debouncedTypingUsersUpdate = debounce((data: TypingUser) => {
     setTypingUsers((prev) => {
       const exists = prev.some((u) => u.userId === data.userId);

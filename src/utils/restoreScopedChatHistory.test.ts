@@ -17,13 +17,15 @@ it('does not expose legacy content when access cannot be verified', async () => 
   expect(await restoreScopedChatHistory({ storageKey: 'scope', modelId: 'model', apiUrl: 'http://core.test', signal: new AbortController().signal })).toEqual([]);
 });
 
-it('shows scoped history while legacy admission is still pending', async () => {
-  (localStorage.getItem as jest.Mock).mockImplementation(key => key === 'chat-conversations:scope' ? '[{"id":"already-owned"}]' : '[{"id":"legacy"}]');
-  let finish!: (data: any) => void;
-  global.fetch = jest.fn().mockReturnValue(new Promise(resolve => { finish = resolve; }));
+it('never exposes scoped cached content before admission, including a claimed guest conversation', async () => {
+  (localStorage.getItem as jest.Mock).mockImplementation(key => key === 'chat-conversations:scope' ? '[{"id":"guest"},{"id":"claimed","messages":[{"text":"private"}]}]' : null);
+  const complete = new Map<string, Function>();
+  global.fetch = jest.fn((_url, options) => new Promise(resolve => { complete.set(JSON.parse(options.body).chatInstanceId, resolve); })) as any;
   const progress = jest.fn();
   const pending = restoreScopedChatHistory({ storageKey: 'scope', modelId: 'model', apiUrl: 'http://core.test', signal: new AbortController().signal, onProgress: progress });
-  expect(progress).toHaveBeenCalledWith([{ id: 'already-owned' }]);
-  finish({ ok: false });
-  await pending;
+  expect(progress).not.toHaveBeenCalled();
+  complete.get('guest')!({ ok: true, json: async () => ({ chatInstanceId: 'guest' }) });
+  complete.get('claimed')!({ ok: false, status: 401 });
+  expect(await pending).toEqual([{ id: 'guest' }]);
+  expect(progress).toHaveBeenCalledWith([{ id: 'guest' }]);
 });
