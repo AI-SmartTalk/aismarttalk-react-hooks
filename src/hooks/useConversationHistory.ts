@@ -44,15 +44,15 @@ export function useConversationHistory({ apiUrl, chatModelId, token, userId, sea
     if (token) void load(); else setPage(empty);
     return () => { pending.current?.abort(); pending.current = null; };
   }, [load]);
-  const update = async (id: string, title?: string) => {
+  const update = async (id: string, title: string) => {
     if (!token) throw new Error('Authentication required');
     const response = await fetch(`${apiUrl.replace(/\/$/, '')}/api/chat/conversations/${encodeURIComponent(id)}?chatModelId=${encodeURIComponent(chatModelId)}`, {
-      method: title === undefined ? 'DELETE' : 'PATCH', headers: { Authorization: `Bearer ${token}`, 'x-use-chatbot-auth': 'true', 'Content-Type': 'application/json' },
-      ...(title !== undefined ? { body: JSON.stringify({ title }) } : {}),
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'x-use-chatbot-auth': 'true', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
     });
     if (!response.ok) throw new Error('Unable to update conversation history');
     if (live.current === scope) await load();
   };
-  return { rename: (id: string, title: string) => update(id, title), remove: (id: string) => update(id), conversations: current.items, isLoading: current.loading, error: current.error,
+  return { rename: (id: string, title: string) => update(id, title), conversations: current.items, isLoading: current.loading, error: current.error,
     hasMore: Boolean(current.cursor), loadMore: () => current.cursor ? load(current.cursor) : Promise.resolve(), refresh: () => load() };
 }

@@ -35,14 +35,14 @@ it('queries messages on the server and retains explicit retry after an error', a
   expect(result.current.error).toBeNull();
   unmount();
 });
-it('persists rename/removal and refreshes from the server only after success', async () => {
+it('persists rename and refreshes from the server only after success', async () => {
   global.fetch = jest.fn().mockResolvedValueOnce(response([item('old')])).mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(response([{ ...item('old'), title: 'Renamed' }])).mockResolvedValueOnce({ ok: false, status: 403 });
   const { result, unmount } = renderHook(() => useConversationHistory(options));
   await waitFor(() => expect(result.current.conversations).toHaveLength(1));
   await act(async () => { await result.current.rename('old', 'Renamed'); });
   expect(result.current.conversations[0].title).toBe('Renamed');
   expect((global.fetch as jest.Mock).mock.calls[1][1]).toMatchObject({ method: 'PATCH', body: '{"title":"Renamed"}' });
-  await act(async () => { await expect(result.current.remove('old')).rejects.toThrow(); });
+  await act(async () => { await expect(result.current.rename('old', 'Forbidden')).rejects.toThrow(); });
   expect(result.current.conversations).toHaveLength(1);
   unmount();
 });
