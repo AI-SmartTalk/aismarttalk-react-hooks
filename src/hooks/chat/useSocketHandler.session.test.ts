@@ -30,5 +30,13 @@ it('reconnects on token renewal and ignores events from the old identity', async
   expect(joined).not.toHaveBeenCalled();
   act(() => { sockets[1].callbacks.joined({ chatInstanceId: 'conversation' }); });
   expect(joined).toHaveBeenCalledTimes(1);
+  // Realtime attribution must agree with history after a visitor is claimed.
+  const guest = { id: 'sys_anonymous', email: 'visitor@example.test', name: 'Visitor', role: 'ANONYMOUS' };
+  act(() => sockets[1].callbacks['chat-message']({ chatInstanceId: 'conversation', message: { id: 'guest-message', text: 'hello', user: guest } }));
+  expect(dispatch.mock.calls.at(-1)[0].payload.message).toMatchObject({ isSent: true, user: guest });
+  act(() => sockets[1].callbacks['chat-message']({ chatInstanceId: 'conversation', message: { id: 'agent-message', text: 'reply', user: { id: 'alice', email: 'alice@example.test' }, metadata: { sentAsAgent: true } } }));
+  expect(dispatch.mock.calls.at(-1)[0].payload.message.isSent).toBe(false);
+  act(() => sockets[1].callbacks['chat-message']({ chatInstanceId: 'conversation', message: { id: 'bot-message', text: 'reply', user: { id: 'alice', email: 'alice@example.test', role: 'BOT' } } }));
+  expect(dispatch.mock.calls.at(-1)[0].payload.message.isSent).toBe(false);
   unmount();
 });

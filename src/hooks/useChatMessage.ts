@@ -430,8 +430,10 @@ export const useChatMessages = ({
     userToken: user?.token,
     socketStatus,
     onHistory: (data) => {
-      const ownerId = data.connectedOrAnonymousUser?.id || user?.id;
-      const ownerEmail = data.connectedOrAnonymousUser?.email || user?.email;
+      // The first historical participant can still be the original visitor
+      // after claim. Align against the current identity, never that old owner.
+      const ownerId = user?.id || data.connectedOrAnonymousUser?.id;
+      const ownerEmail = user?.email || data.connectedOrAnonymousUser?.email;
       const messages = (data.messages || []).map((message: FrontChatMessage) => ({
         ...message,
         chatInstanceId,

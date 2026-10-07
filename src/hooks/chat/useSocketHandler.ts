@@ -1,3 +1,4 @@
+import { shouldMessageBeSent } from "../../utils/messageUtils";
 import { conversationVisitorHeaders, reportConversationAccessFailure } from "../../utils/conversationVisitorToken";
 import {
   Dispatch,
@@ -299,24 +300,11 @@ export const useSocketHandler = (
         lastMessageReceivedRef.current = now;
         socketRef.current._lastMessageTime = now;
 
-        // Check if this is a normal message or a temp message
-        const isCurrentUser =
-          (user.id &&
-            user.id !== "anonymous" &&
-            data.message.user?.id === user.id) ||
-          (user.email && data.message.user?.email === user.email);
+        // Use the same attribution as history, including visitor messages
+        // preserved when the conversation is claimed by an account.
+        const isSent = shouldMessageBeSent(data.message, user.id, user.email);
 
-        const isAnonymousUser =
-          user.id === "anonymous" &&
-          (data.message.user?.id === "anonymous" ||
-            data.message.user?.email === "anonymous@example.com");
-
-        if (debug) {
-          console.log(
-            "   Processing message with isSent:",
-            isCurrentUser || isAnonymousUser
-          );
-        }
+        if (debug) console.log("   Processing message with isSent:", isSent);
 
         // Let the reducer handle the message combining logic
         dispatch({
@@ -324,7 +312,7 @@ export const useSocketHandler = (
           payload: {
             message: {
               ...data.message,
-              isSent: isCurrentUser || isAnonymousUser,
+              isSent,
             },
             chatInstanceId,
             userId: user.id,
