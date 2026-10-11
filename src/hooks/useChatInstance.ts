@@ -1,3 +1,4 @@
+import { readConversationStorage, writeConversationStorage, removeConversationStorage, newConversationCreationKey } from "../utils/conversationStorage";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { conversationVisitorHeaders, storeConversationVisitorToken } from "../utils/conversationVisitorToken";
 import { defaultApiUrl } from "../types/config";
@@ -6,7 +7,7 @@ type Identity = { token?: string; id?: string; email?: string; name?: string };
 interface UseChatInstanceProps {
   chatModelId: string;
   lang: string;
-  config?: { apiUrl?: string; apiToken?: string; storageNamespace?: string };
+  config?: { apiUrl?: string; apiToken?: string; storageNamespace?: string; getClientSignalsHeader?: () => string | null | undefined };
   user?: Identity;
   isAdmin?: boolean;
 }
@@ -54,13 +55,13 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   if (context.current.scope !== storageKey) context.current = { scope: storageKey, epoch: context.current.epoch + 1 };
   const pending = useRef<{ key: string; controller: AbortController; promise: Promise<string | null> } | null>(null);
   const mounted = useRef(true);
-  const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
+  const read = readConversationStorage;
   const readSelection = (): Selection | null => {
     try { const value = JSON.parse(read(selectionKey) || 'null');
       return value && typeof value.id === 'string' && typeof value.identity === 'string' ? value : null;
     } catch { return null; }
   };
-  const store = (key: string, id: string) => { try { localStorage.setItem(key, id); } catch { /* Storage may be unavailable */ } };
+  const store = writeConversationStorage;
 
   const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true): Promise<string | null> => {
     const identity = overrideUser || user;
@@ -76,11 +77,20 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     const headers: Record<string, string> = { 'Content-Type': 'application/json', appToken: apiToken };
     if (identity?.token) { headers.Authorization = `Bearer ${identity.token}`; headers['x-use-chatbot-auth'] = 'true'; }
     const url = isAdmin ? `${apiUrl}/api/admin/chatModel/${chatModelId}/smartadmin/instance` : `${apiUrl}/api/chat/createInstance`;
-    const post = (id?: string) => fetch(url, {
-      method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || '') }, signal: controller.signal,
+    let creationKey: string | undefined;
+    const post = (id?: string) => {
+      if (!id && !isAdmin) {
+        creationKey = read(`${scope}:creation`) || newConversationCreationKey();
+        store(`${scope}:creation`, creationKey);
+      }
+      const signals = config?.getClientSignalsHeader?.();
+      return fetch(url, {
+      method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || ''), ...(signals ? { 'x-client-signals': signals } : {}) }, signal: controller.signal,
       body: JSON.stringify({ chatModelId, lang, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
+        ...(!id && creationKey ? { creationKey } : {}),
         ...(id ? { resumeOnly: true, chatInstanceId: id, ...(publish && identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
     });
+    };
     const timeout = setTimeout(() => controller.abort(), 10_000);
     const promise = (async () => {
       try {
@@ -114,7 +124,10 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           if (resuming && data.chatInstanceId !== saved) {
             throw Object.assign(new Error('Server returned a different conversation during resume'), { code: 'CONVERSATION_RESUME_MISMATCH' });
           }
-          if (!current()) return null;
+          // Keep a successful response through unmount/navigation, provided
+          // a newer explicit selection or identity transition has not replaced it.
+          if (context.current.epoch !== epoch || (creationKey && read(`${scope}:creation`) !== creationKey)) return null;
+          if (publish && readSelection()?.id && readSelection()?.id !== selection?.id && readSelection()?.id !== saved && readSelection()?.id !== data.chatInstanceId) return null;
           // Receiving a storage event must not publish it back to other tabs.
           // Late events and responses must not override a newer shared selection.
           if (!publish && readSelection()?.id !== requestedId) return null;
@@ -125,8 +138,9 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           }
           // Legacy storage is never written again; each identity has its own key.
           if (!storageNamespace) {
-            try { localStorage.removeItem(legacyKey); } catch { /* optional */ }
+            removeConversationStorage(legacyKey);
           }
+          if (!current()) return null;
           if (context.current.scope === scope) setActive({ scope, id: data.chatInstanceId });
           return data.chatInstanceId;
         };
@@ -148,15 +162,22 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     })();
     pending.current = { key, controller, promise };
     return promise;
-  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace]);
+  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace, config?.getClientSignalsHeader]);
 
-  const getNewInstance = useCallback((identity?: Identity) => resolve(identity, undefined, true), [resolve]);
+  const getNewInstance = useCallback((identity?: Identity) => {
+    const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity || user, isAdmin, storageNamespace);
+    store(`${scope}:creation`, newConversationCreationKey());
+    store(selectionKey, JSON.stringify({ id: "", identity: chatIdentity(identity || user), fresh: true }));
+    return resolve(identity, undefined, true);
+  }, [resolve, apiUrl, chatModelId, user, isAdmin, storageNamespace, selectionKey]);
   const selectInstance = useCallback((id: string) => resolve(undefined, id), [resolve]);
   const beginAnonymousSession = useCallback(() => {
     pending.current?.controller.abort();
     context.current.epoch++;
     setActive({ scope: '', id: '' });
     const freshVisitor = JSON.stringify({ id: '', identity: 'visitor', fresh: true });
+    const visitorScope = chatInstanceStorageKey(apiUrl, chatModelId, undefined, isAdmin, storageNamespace);
+    store(`${visitorScope}:creation`, newConversationCreationKey());
     store(selectionKey, freshVisitor);
     const visitorSelectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, { id: 'anonymous' });
     if (visitorSelectionKey !== selectionKey) store(visitorSelectionKey, freshVisitor);
@@ -165,7 +186,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     pending.current?.controller.abort();
     context.current.epoch++;
     setActive({ scope: storageKey, id: '' });
-    try { localStorage.removeItem(storageKey); } catch { /* optional */ }
+    removeConversationStorage(storageKey);
   }, [storageKey, selectionKey]);
 
   useEffect(() => {

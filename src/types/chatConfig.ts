@@ -15,6 +15,8 @@ export interface ChatConfig {
   apiToken?: string;
   /** Isolate local conversation selection for previews without changing server access. */
   storageNamespace?: string;
+  /** Optional browser signals used by creation protection. */
+  getClientSignalsHeader?: () => string | null | undefined;
   features?: ChatFeatures;
   user?: User;
   debug?: boolean;
