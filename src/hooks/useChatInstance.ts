@@ -45,6 +45,8 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const apiUrl = (config?.apiUrl || defaultApiUrl).replace(/\/$/, '');
   const apiToken = config?.apiToken || '';
   const storageNamespace = config?.storageNamespace || '';
+  const signalsGetter = useRef(config?.getClientSignalsHeader);
+  signalsGetter.current = config?.getClientSignalsHeader;
   const storageKey = chatInstanceStorageKey(apiUrl, chatModelId, user, isAdmin, storageNamespace);
   const selectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, user);
   const legacyKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin' : '-standard'}]`;
@@ -83,7 +85,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
         creationKey = read(`${scope}:creation`) || newConversationCreationKey();
         store(`${scope}:creation`, creationKey);
       }
-      const signals = config?.getClientSignalsHeader?.();
+      const signals = signalsGetter.current?.();
       return fetch(url, {
       method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || ''), ...(signals ? { 'x-client-signals': signals } : {}) }, signal: controller.signal,
       body: JSON.stringify({ chatModelId, lang, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
@@ -100,7 +102,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           const selection = readSelection();
           const scoped = requestedId || selection?.id || read(scope);
           const legacy = !storageNamespace ? (previousScope ? read(previousScope) : null) || read(legacyKey) : null;
-          const saved = fresh || selection?.fresh ? null : scoped || legacy;
+          const saved = fresh ? null : requestedId || (selection?.fresh ? null : scoped || legacy);
           const legacyVisitor = Boolean(saved && !scoped && saved === legacy && !identity?.token && !Object.keys(conversationVisitorHeaders(saved)).length);
           let resuming = Boolean(saved);
           let response = isAdmin && saved
@@ -162,10 +164,14 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     })();
     pending.current = { key, controller, promise };
     return promise;
-  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace, config?.getClientSignalsHeader]);
+  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace]);
 
   const getNewInstance = useCallback((identity?: Identity) => {
     const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity || user, isAdmin, storageNamespace);
+    // Coalesce repeated clicks before rotating the capability. Otherwise the
+    // second click invalidates the first response while sharing its promise.
+    const pendingKey = JSON.stringify([scope, (identity || user)?.token, '', true, true]);
+    if (pending.current?.key === pendingKey && !pending.current.controller.signal.aborted) return pending.current.promise;
     store(`${scope}:creation`, newConversationCreationKey());
     store(selectionKey, JSON.stringify({ id: "", identity: chatIdentity(identity || user), fresh: true }));
     return resolve(identity, undefined, true);
@@ -175,12 +181,19 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     pending.current?.controller.abort();
     context.current.epoch++;
     setActive({ scope: '', id: '' });
-    const freshVisitor = JSON.stringify({ id: '', identity: 'visitor', fresh: true });
-    const visitorScope = chatInstanceStorageKey(apiUrl, chatModelId, undefined, isAdmin, storageNamespace);
-    store(`${visitorScope}:creation`, newConversationCreationKey());
-    store(selectionKey, freshVisitor);
-    const visitorSelectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, { id: 'anonymous' });
-    if (visitorSelectionKey !== selectionKey) store(visitorSelectionKey, freshVisitor);
+    setChanging(false);
+    try {
+      const freshVisitor = JSON.stringify({ id: '', identity: 'visitor', fresh: true });
+      const visitorScope = chatInstanceStorageKey(apiUrl, chatModelId, undefined, isAdmin, storageNamespace);
+      store(`${visitorScope}:creation`, newConversationCreationKey());
+      store(selectionKey, freshVisitor);
+      const visitorSelectionKey = chatActiveSelectionKey(apiUrl, chatModelId, isAdmin, storageNamespace, { id: 'anonymous' });
+      if (visitorSelectionKey !== selectionKey) store(visitorSelectionKey, freshVisitor);
+    } catch (cause) {
+      // Storage must not prevent the caller from clearing account credentials.
+      // Subsequent anonymous admission remains subject to server access checks.
+      setError(cause instanceof Error ? cause : new Error('Failed to retain conversation selection'));
+    }
   }, [apiUrl, chatModelId, isAdmin, selectionKey, storageNamespace]);
   const cleanup = useCallback(async () => {
     pending.current?.controller.abort();

@@ -1,8 +1,10 @@
 /** Keep admissions and capabilities together when persistent storage is blocked.
  * Never silently create a new conversation if neither browser store works. */
 export function readConversationStorage(key: string): string | null {
-  try { const value = localStorage.getItem(key); if (typeof value === "string") return value; } catch { /* Try session storage. */ }
-  try { return sessionStorage.getItem(key); } catch { return null; }
+  // A fallback write is newer than a stale, still-readable local value. A
+  // successful local write removes this session override in the writer below.
+  try { const value = sessionStorage.getItem(key); if (typeof value === "string") return value; } catch { /* Try persistent storage. */ }
+  try { return localStorage.getItem(key); } catch { return null; }
 }
 export function writeConversationStorage(key: string, value: string): void {
   try {
