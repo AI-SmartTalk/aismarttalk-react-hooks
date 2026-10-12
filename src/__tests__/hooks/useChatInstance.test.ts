@@ -14,6 +14,7 @@ const request = jest.fn();
 const oldFetch = global.fetch;
 
 beforeEach(() => {
+  sessionStorage.clear();
   const data = new Map<string, string>();
   (localStorage.getItem as jest.Mock).mockImplementation((key: string) => data.get(key) || null);
   (localStorage.setItem as jest.Mock).mockImplementation((key: string, value: string) => data.set(key, value));
@@ -301,4 +302,168 @@ it('keeps a modern visitor selection locked instead of silently discarding it', 
   const { result } = renderHook(() => useChatInstance({ ...base, user: anonymous }));
   await waitFor(() => expect(result.current.error).toBeInstanceOf(Error));
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+it('retains an empty conversation across host paths and language changes', async () => {
+  const first = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('created'));
+  first.unmount();
+  window.history.replaceState({}, '', '/another-page');
+  const second = renderHook(() => useChatInstance({ ...base, lang: 'en' }));
+  await waitFor(() => expect(second.result.current.chatInstanceId).toBe('created'));
+  const bodies = request.mock.calls.map(call => JSON.parse(call[1].body));
+  expect(bodies.filter(body => !body.resumeOnly)).toHaveLength(1);
+  expect(bodies[1]).toMatchObject({ resumeOnly: true, chatInstanceId: 'created' });
+  second.unmount(); window.history.replaceState({}, '', '/');
+});
+
+it('reuses the persisted creation key after a lost response and navigation', async () => {
+  request.mockRejectedValueOnce(new TypeError('Network connection lost'));
+  const first = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(first.result.current.error).not.toBeNull());
+  const initial = JSON.parse(request.mock.calls[0][1].body).creationKey;
+  expect(initial).toMatch(/^[a-f0-9]{64}$/);
+  expect(localStorage.getItem(`${key()}:creation`)).toBe(initial);
+  first.unmount();
+  const second = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(second.result.current.chatInstanceId).toBe('created'));
+  expect(JSON.parse(request.mock.calls[1][1].body).creationKey).toBe(initial);
+});
+
+it('persists a late successful response after unmount to resume the empty thread', async () => {
+  let deliver!: (value: any) => void;
+  request.mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }));
+  const first = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  first.unmount();
+  await act(async () => deliver(response('created')));
+  expect(localStorage.getItem(key())).toBe('created');
+  const second = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(second.result.current.chatInstanceId).toBe('created'));
+  expect(JSON.parse(request.mock.calls[1][1].body)).toMatchObject({ resumeOnly: true, chatInstanceId: 'created' });
+});
+
+it('rotates the creation key only for an explicit new conversation and retains it on retry', async () => {
+  const hook = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  const old = JSON.parse(request.mock.calls[0][1].body).creationKey;
+  request.mockRejectedValueOnce(new TypeError('lost'));
+  await act(async () => { await hook.result.current.getNewInstance(); });
+  const fresh = JSON.parse(request.mock.calls[1][1].body).creationKey;
+  expect(fresh).not.toBe(old);
+  // The explicit new selection must survive retries even while the old ID is stored.
+  await act(async () => { await hook.result.current.retry(); });
+  expect(JSON.parse(request.mock.calls[2][1].body).creationKey).toBe(fresh);
+});
+
+it('sends browser signals during creation and resumption', async () => {
+  const getClientSignalsHeader = () => 'encoded-signals';
+  const first = renderHook(() => useChatInstance({ ...base, config: { ...base.config, getClientSignalsHeader } }));
+  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('created'));
+  expect(request.mock.calls[0][1].headers['x-client-signals']).toBe('encoded-signals');
+  first.unmount();
+  const second = renderHook(() => useChatInstance({ ...base, config: { ...base.config, getClientSignalsHeader } }));
+  await waitFor(() => expect(second.result.current.chatInstanceId).toBe('created'));
+  expect(request.mock.calls[1][1].headers['x-client-signals']).toBe('encoded-signals');
+});
+
+it('keeps the empty conversation and visitor capability in session storage when local storage is blocked', async () => {
+  (localStorage.setItem as jest.Mock).mockImplementation(() => { throw new Error('blocked'); });
+  request.mockImplementation(async (_url, init) => {
+    const body = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ chatInstanceId: 'created', ...(body.creationKey ? { visitorToken: body.creationKey } : {}) }) };
+  });
+  const first = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(first.result.current.chatInstanceId).toBe('created'));
+  const capability = sessionStorage.getItem('chatVisitorToken:v1:created');
+  expect(capability).toMatch(/^[a-f0-9]{64}$/);
+  expect(sessionStorage.getItem(key())).toBe('created');
+  first.unmount();
+  const second = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(second.result.current.chatInstanceId).toBe('created'));
+  expect(JSON.parse(request.mock.calls[1][1].body).resumeOnly).toBe(true);
+  expect(request.mock.calls[1][1].headers['x-chat-visitor-token']).toBe(capability);
+});
+
+it('does not create orphan conversations when both browser stores are unavailable', async () => {
+  (localStorage.setItem as jest.Mock).mockImplementation(() => { throw new Error('blocked'); });
+  const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+  try {
+    const hook = renderHook(() => useChatInstance(base));
+    await waitFor(() => expect(hook.result.current.error).not.toBeNull());
+    expect(hook.result.current.error).toMatchObject({ code: 'CONVERSATION_STORAGE_UNAVAILABLE' });
+    expect(request).not.toHaveBeenCalled();
+    hook.unmount();
+  } finally { spy.mockRestore(); }
+});
+
+it('resumes an explicit history selection after a failed new-conversation attempt', async () => {
+  const hook = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  request.mockResolvedValueOnce(refusal(429, 'RATE_LIMITED'));
+  await act(async () => { await hook.result.current.getNewInstance(); });
+  expect(hook.result.current.error).toMatchObject({ code: 'RATE_LIMITED' });
+  request.mockResolvedValueOnce(response('history-thread'));
+  await act(async () => { await hook.result.current.selectInstance('history-thread'); });
+  expect(JSON.parse(request.mock.calls[2][1].body)).toMatchObject({ resumeOnly: true, chatInstanceId: 'history-thread' });
+  expect(hook.result.current.chatInstanceId).toBe('history-thread');
+  expect(hook.result.current.error).toBeNull();
+});
+
+it('uses the latest session values if local storage becomes read-only after initialization', async () => {
+  const hook = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  const originalKey = JSON.parse(request.mock.calls[0][1].body).creationKey;
+  (localStorage.setItem as jest.Mock).mockImplementation(() => { throw new Error('read-only'); });
+  request.mockResolvedValueOnce(response('fresh-thread'));
+  await act(async () => { await hook.result.current.getNewInstance(); });
+  expect(JSON.parse(request.mock.calls[1][1].body).creationKey).not.toBe(originalKey);
+  expect(hook.result.current.chatInstanceId).toBe('fresh-thread');
+  hook.unmount();
+  request.mockResolvedValue(response('fresh-thread'));
+  const next = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(next.result.current.chatInstanceId).toBe('fresh-thread'));
+  expect(JSON.parse(request.mock.calls[2][1].body)).toMatchObject({ resumeOnly: true, chatInstanceId: 'fresh-thread' });
+});
+
+it('lets logout clear the identity even if both browser stores become unavailable', async () => {
+  const hook = renderHook(() => useChatInstance({ ...base, user: account }));
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  (localStorage.setItem as jest.Mock).mockImplementation(() => { throw new Error('blocked'); });
+  const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+  try {
+    act(() => { expect(() => hook.result.current.beginAnonymousSession()).not.toThrow(); });
+    expect(hook.result.current.chatInstanceId).toBe('');
+    expect(hook.result.current.error).toMatchObject({ code: 'CONVERSATION_STORAGE_UNAVAILABLE' });
+  } finally { spy.mockRestore(); }
+});
+
+it('keeps one creation capability and one result for overlapping explicit new-conversation requests', async () => {
+  const hook = renderHook(() => useChatInstance(base));
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  let deliver!: (value: any) => void;
+  request.mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }));
+  let first!: Promise<string | null>;
+  let second!: Promise<string | null>;
+  act(() => { first = hook.result.current.getNewInstance(); second = hook.result.current.getNewInstance(); });
+  expect(request).toHaveBeenCalledTimes(2);
+  const capability = JSON.parse(request.mock.calls[1][1].body).creationKey;
+  expect(localStorage.getItem(`${key()}:creation`)).toBe(capability);
+  let results!: (string | null)[];
+  await act(async () => { deliver(response('fresh-thread')); results = await Promise.all([first, second]); });
+  expect(results).toEqual(['fresh-thread', 'fresh-thread']);
+  expect(hook.result.current.chatInstanceId).toBe('fresh-thread');
+});
+
+it('does not restart admission when the signals callback is recreated during render', async () => {
+  jest.useFakeTimers();
+  const deliveries: ((value: any) => void)[] = [];
+  request.mockImplementation(() => new Promise(resolve => { deliveries.push(resolve); }));
+  const hook = renderHook(() => useChatInstance({ ...base, config: { ...base.config, getClientSignalsHeader: () => 'signals' } }));
+  try {
+    expect(request).toHaveBeenCalledTimes(1);
+    await act(async () => { deliveries[0](response('created')); });
+    expect(hook.result.current.chatInstanceId).toBe('created');
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally { hook.unmount(); jest.clearAllTimers(); jest.useRealTimers(); }
 });

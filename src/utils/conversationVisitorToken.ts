@@ -1,12 +1,13 @@
+import { readConversationStorage, writeConversationStorage } from "./conversationStorage";
 /** A server-issued capability belongs to one conversation, never to the shared anonymous user. */
 export function conversationVisitorHeaders(id: string): Record<string, string> {
   try {
-    const token = localStorage.getItem(`chatVisitorToken:v1:${id}`);
+    const token = readConversationStorage(`chatVisitorToken:v1:${id}`);
     return token ? { 'x-chat-visitor-token': token } : {};
   } catch { return {}; }
 }
 export function storeConversationVisitorToken(id: string, token: string): void {
-  try { localStorage.setItem(`chatVisitorToken:v1:${id}`, token); } catch { /* Restricted storage. */ }
+  writeConversationStorage(`chatVisitorToken:v1:${id}`, token);
 }
 
 export function reportConversationAccessFailure(id: string, status: number, code: string, pendingMessage?: string) {

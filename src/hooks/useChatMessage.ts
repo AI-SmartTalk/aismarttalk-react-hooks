@@ -906,11 +906,10 @@ export const useChatMessages = ({
       };
 
       setConversations((prev) => {
-        const updated = [newConversation, ...prev];
-        localStorage.setItem(
-          `chat-conversations:${storageKey}`,
-          JSON.stringify(updated)
-        );
+        const updated = [newConversation, ...prev.filter(item => item.id !== newInstanceId)];
+        try {
+          localStorage.setItem(`chat-conversations:${storageKey}`, JSON.stringify(updated));
+        } catch { /* Optional cached history must not discard an admitted conversation. */ }
         return updated;
       });
 

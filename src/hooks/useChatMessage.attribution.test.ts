@@ -6,7 +6,7 @@ import { User } from '../types/users';
 import { FrontChatMessage } from '../types/chat';
 
 jest.mock('./useChatInstance', () => ({ __esModule: true, default: ({ user }: any) => ({
-  chatInstanceId: 'claimed-conversation', storageKey: `attribution-test:${user.id}`,
+  getNewInstance: async () => 'fresh-conversation', chatInstanceId: 'claimed-conversation', storageKey: `attribution-test:${user.id}`,
 }) }));
 jest.mock('./chat/useConversationSync', () => ({ useConversationSync: jest.fn(() => jest.fn()) }));
 jest.mock('./chat/useSocketHandler', () => ({ useSocketHandler: jest.fn(() => ({ current: null })) }));
@@ -64,4 +64,26 @@ it('fans out voice events on the admitted SDK connection and unsubscribes cleanl
  stopFirst();act(()=>onEvent('voice-processing-step',{step:'tool'}));expect(first).toHaveBeenCalledTimes(1);expect(second).toHaveBeenCalledTimes(2);
  stopSecond();act(()=>onEvent('voice-processing-step',{step:'thinking'}));expect(second).toHaveBeenCalledTimes(2);
  unmount();await act(async()=>{});
+});
+
+it('keeps one history entry when two new-chat actions resolve to the same admitted conversation', async () => {
+  const data = new Map<string, string>();
+  (localStorage.getItem as jest.Mock).mockImplementation((key: string) => data.get(key) ?? null);
+  (localStorage.setItem as jest.Mock).mockImplementation((key: string, value: string) => data.set(key, value));
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => [] });
+  const hook = renderHook(() => useChatMessages({ chatModelId: 'model', user: { id: 'alice', email: 'alice@test', token: 'token' }, setUser: jest.fn() }));
+  await act(async () => { expect(await Promise.all([hook.result.current.createNewChat(), hook.result.current.createNewChat()])).toEqual(['fresh-conversation', 'fresh-conversation']); });
+  expect(hook.result.current.conversations.filter(item => item.id === 'fresh-conversation')).toHaveLength(1);
+  expect(JSON.parse(localStorage.getItem('chat-conversations:attribution-test:alice')!).filter((item: any) => item.id === 'fresh-conversation')).toHaveLength(1);
+  hook.unmount();
+});
+
+it('keeps an admitted new chat usable if optional history persistence fails', async () => {
+  (localStorage.getItem as jest.Mock).mockReturnValue(null);
+  (localStorage.setItem as jest.Mock).mockImplementation(() => { throw new Error('read-only'); });
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => [] });
+  const hook = renderHook(() => useChatMessages({ chatModelId: 'model', user: { id: 'alice', email: 'alice@test', token: 'token' }, setUser: jest.fn() }));
+  await act(async () => { expect(await hook.result.current.createNewChat()).toBe('fresh-conversation'); });
+  expect(hook.result.current.conversations.some(item => item.id === 'fresh-conversation')).toBe(true);
+  hook.unmount();
 });
