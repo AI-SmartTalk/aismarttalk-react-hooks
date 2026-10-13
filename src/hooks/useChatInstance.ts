@@ -45,6 +45,8 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const apiUrl = (config?.apiUrl || defaultApiUrl).replace(/\/$/, '');
   const apiToken = config?.apiToken || '';
   const storageNamespace = config?.storageNamespace || '';
+  const language = useRef(lang);
+  language.current = lang;
   const signalsGetter = useRef(config?.getClientSignalsHeader);
   signalsGetter.current = config?.getClientSignalsHeader;
   const storageKey = chatInstanceStorageKey(apiUrl, chatModelId, user, isAdmin, storageNamespace);
@@ -88,7 +90,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
       const signals = signalsGetter.current?.();
       return fetch(url, {
       method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || ''), ...(signals ? { 'x-client-signals': signals } : {}) }, signal: controller.signal,
-      body: JSON.stringify({ chatModelId, lang, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
+      body: JSON.stringify({ chatModelId, lang: language.current, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
         ...(!id && creationKey ? { creationKey } : {}),
         ...(id ? { resumeOnly: true, chatInstanceId: id, ...(publish && identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
     });
@@ -164,7 +166,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     })();
     pending.current = { key, controller, promise };
     return promise;
-  }, [apiUrl, apiToken, chatModelId, lang, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace]);
+  }, [apiUrl, apiToken, chatModelId, user?.id, user?.token, user?.email, user?.name, isAdmin, legacyKey, selectionKey, storageNamespace]);
 
   const getNewInstance = useCallback((identity?: Identity) => {
     const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity || user, isAdmin, storageNamespace);

@@ -1,3 +1,4 @@
+import { secureRandomId } from "../utils/secureRandomId";
 import { useState, useEffect, useCallback } from "react";
 
 /**
@@ -226,7 +227,7 @@ export default function useUser(initialUserOverride?: User, storageKey = 'user')
       try {
         // Removing an absent key emits no event (host-seeded accounts may
         // never have been persisted). Always publish an explicit logout.
-        localStorage.setItem(storageKey, JSON.stringify({ ...initialUser, logoutNonce: `${Date.now()}:${Math.random()}` }));
+        localStorage.setItem(storageKey, JSON.stringify({ ...initialUser, logoutNonce: secureRandomId() }));
       } catch (error) {
         console.warn("[AI Smarttalk] Failed to publish logout to localStorage");
       }

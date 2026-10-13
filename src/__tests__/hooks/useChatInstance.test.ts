@@ -467,3 +467,19 @@ it('does not restart admission when the signals callback is recreated during ren
     expect(request).toHaveBeenCalledTimes(1);
   } finally { hook.unmount(); jest.clearAllTimers(); jest.useRealTimers(); }
 });
+
+it('keeps the admitted conversation across language changes and creates with the latest language', async () => {
+  const hook = renderHook(({ lang }) => useChatInstance({ ...base, user: account, lang }), { initialProps: { lang: 'fr' } });
+  await waitFor(() => expect(hook.result.current.chatInstanceId).toBe('created'));
+  for (const lang of ['en', 'de', 'ja', 'fr']) {
+    hook.rerender({ lang });
+    await act(async () => {});
+    expect(hook.result.current.chatInstanceId).toBe('created');
+    expect(request).toHaveBeenCalledTimes(1);
+  }
+  hook.rerender({ lang: 'ja' });
+  await act(async () => { await hook.result.current.getNewInstance(); });
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(request.mock.calls[1][1].body).lang).toBe('ja');
+  hook.unmount();
+});
