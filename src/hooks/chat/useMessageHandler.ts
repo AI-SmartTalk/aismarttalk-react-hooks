@@ -1,3 +1,4 @@
+import { secureRandomId } from "../../utils/secureRandomId";
 import { useCallback } from "react";
 import { useState } from 'react';
 import { FrontChatMessage } from '../../types/chat';
@@ -20,7 +21,7 @@ export const useMessageHandler = (
     if (!chatInstanceId) return;
     
     const newMessage: FrontChatMessage = {
-      id: message.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: message.id || secureRandomId(),
       text: message.text,
       isSent: false,
       isLocallyCreated: !message.id || /^(temp-|streaming-)/.test(message.id),

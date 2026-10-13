@@ -24,8 +24,4 @@ export function removeConversationStorage(key: string): void {
   try { localStorage.removeItem(key); } catch { /* Optional. */ }
   try { sessionStorage.removeItem(key); } catch { /* Optional. */ }
 }
-export function newConversationCreationKey(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
+export { secureRandomId as newConversationCreationKey } from './secureRandomId';
