@@ -23,6 +23,7 @@ import useCanvasHistory from "./canva/useCanvasHistory";
 import { useMessageHandler } from "./chat/useMessageHandler";
 import { useConversationSync } from "./chat/useConversationSync";
 import { useSocketHandler } from "./chat/useSocketHandler";
+import { persistScopedChatHistory } from "../utils/persistScopedChatHistory";
 import { restoreScopedChatHistory } from "../utils/restoreScopedChatHistory";
 import useChatInstance from "./useChatInstance";
 import { shouldMessageBeSent } from "../utils/messageUtils";
@@ -391,8 +392,13 @@ export const useChatMessages = ({
     }
   }, [chatInstanceId]);
   
+  // History is optional. Admission of the selected conversation must never scan it.
+  const hasAdmittedConversation = Boolean(chatInstanceId);
+  const historyScope = JSON.stringify([storageKey, finalApiUrl, finalApiToken, user?.token]);
+  const [requestedHistoryScope, setRequestedHistoryScope] = useState<string | null>(null);
+  const loadLocalConversationHistory = useCallback(() => setRequestedHistoryScope(historyScope), [historyScope]);
   useEffect(() => {
-    if (!chatInstanceId) { setConversations([]); return; }
+    if (!hasAdmittedConversation || requestedHistoryScope !== historyScope) { setConversations([]); return; }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     setConversations([]);
@@ -407,7 +413,7 @@ export const useChatMessages = ({
       },
     }).finally(() => clearTimeout(timeout));
     return () => { clearTimeout(timeout); controller.abort(); };
-  }, [storageKey, chatInstanceId, finalApiUrl, finalApiToken, chatModelId, user?.token]);
+  }, [storageKey, hasAdmittedConversation, requestedHistoryScope, historyScope, finalApiUrl, finalApiToken, chatModelId, user?.token]);
 
   // Every admitted conversation with a visitor message belongs in the scoped
   // index, including the first automatic session and messages loaded by HTTP
@@ -424,7 +430,7 @@ export const useChatMessages = ({
     saveConversationHistory(chatInstanceId, title, messages);
     setConversations(previous => {
       const updated = [entry, ...previous.filter(item => item.id !== chatInstanceId)];
-      try { localStorage.setItem(`chat-conversations:${storageKey}`, JSON.stringify(updated)); } catch { /* storage may be unavailable */ }
+      try { persistScopedChatHistory(storageKey, updated); } catch { /* storage may be unavailable */ }
       return updated;
     });
   }, [chatInstanceId, storageKey, state.messages, chatTitle, user?.id, user?.email]);
@@ -745,22 +751,6 @@ export const useChatMessages = ({
         });
       }
 
-      if (conversations.length === 0) {
-        try {
-          const stored = localStorage.getItem(
-            `chat-conversations:${storageKey}`
-          );
-          if (stored) {
-            const parsedConversations = JSON.parse(stored);
-            setConversations(parsedConversations);
-          }
-        } catch (e) {
-          console.error(
-            "[AI Smarttalk] Error loading conversations from storage:",
-            e
-          );
-        }
-      }
 
       try {
         const storedHistory = loadConversationHistory(targetInstanceId);
@@ -828,10 +818,7 @@ export const useChatMessages = ({
 
           const updated = [newConversationItem, ...prev];
 
-          localStorage.setItem(
-            `chat-conversations:${storageKey}`,
-            JSON.stringify(updated)
-          );
+          persistScopedChatHistory(storageKey, updated);
 
           return updated;
         } else {
@@ -845,10 +832,7 @@ export const useChatMessages = ({
               : conv
           );
 
-          localStorage.setItem(
-            `chat-conversations:${storageKey}`,
-            JSON.stringify(updated)
-          );
+          persistScopedChatHistory(storageKey, updated);
 
           return updated;
         }
@@ -908,7 +892,7 @@ export const useChatMessages = ({
       setConversations((prev) => {
         const updated = [newConversation, ...prev.filter(item => item.id !== newInstanceId)];
         try {
-          localStorage.setItem(`chat-conversations:${storageKey}`, JSON.stringify(updated));
+          persistScopedChatHistory(storageKey, updated);
         } catch { /* Optional cached history must not discard an admitted conversation. */ }
         return updated;
       });
@@ -1053,6 +1037,7 @@ export const useChatMessages = ({
     fetchMessagesFromApi,
     chatTitle,
     conversations,
+    loadLocalConversationHistory,
     setConversations,
     saveConversationHistory: (messages: FrontChatMessage[], title: string) => {
       // Don't save empty conversations to history

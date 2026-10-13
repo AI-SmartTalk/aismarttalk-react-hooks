@@ -177,6 +177,7 @@ export const useAISmarttalkChat = ({
     activeTool,
     fetchMessagesFromApi,
     conversations,
+    loadLocalConversationHistory,
     setConversations,
     canvasHistory,
     onSend,
@@ -354,6 +355,7 @@ export const useAISmarttalkChat = ({
 
     activeTool,
     conversations,
+    loadLocalConversationHistory,
     setConversations,
     fetchMessagesFromApi: fetchMessagesWithLogging,
 
