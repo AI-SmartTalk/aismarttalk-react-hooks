@@ -28,6 +28,7 @@ import { restoreScopedChatHistory } from "../utils/restoreScopedChatHistory";
 import useChatInstance from "./useChatInstance";
 import { shouldMessageBeSent } from "../utils/messageUtils";
 import { useFileUpload } from "./fileUpload/useFileUpload";
+import { useWelcomeContent } from "./chat/useWelcomeContent";
 
 /**
  * Custom hook for managing chat messages and related functionality
@@ -83,9 +84,11 @@ export const useChatMessages = ({
   const finalWsUrl = config?.wsUrl || defaultWsUrl;
 
   const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const { chatInstanceId, selectInstance, getNewInstance, storageKey, isChanging: isChangingInstance, error: instanceError, retry: retryChatSession, beginAnonymousSession } = useChatInstance(
+  const { chatInstanceId, selectInstance, getNewInstance, ensureInstance, storageKey, isChanging: isChangingInstance, error: instanceError, retry: retryChatSession, beginAnonymousSession } = useChatInstance(
     { chatModelId, lang, config, isAdmin: isAdmin, user }
   );
+  const lazy = Boolean(config?.lazyConversation);
+  const welcome = useWelcomeContent({ enabled: lazy && !chatInstanceId && !isChangingInstance, apiUrl: finalApiUrl, apiToken: finalApiToken, chatModelId, lang });
   const [socketStatus, setSocketStatus] = useState<string>("disconnected");
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [conversationStarters, setConversationStarters] = useState<CTADTO[]>(
@@ -728,6 +731,34 @@ export const useChatMessages = ({
     }
   };
 
+  // Lazy mode: a first message sent before any conversation exists is queued,
+  // the conversation is created, and the message is sent from the effect below
+  // once that exact conversation is active (onSend closes over chatInstanceId).
+  const [queuedSend, setQueuedSend] = useState<{ text: string; scope: string; id?: string } | null>(null);
+  const queuedSendRef = useRef(queuedSend);
+  queuedSendRef.current = queuedSend;
+  const sendWithoutConversation = (messageText: string) => {
+    if (queuedSendRef.current || isChangingInstance || state.isLoading) return;
+    const entry = { text: messageText, scope: storageKey };
+    queuedSendRef.current = entry;
+    setQueuedSend(entry);
+    void ensureInstance().then(id => {
+      setQueuedSend(current => current !== entry ? current : id ? { ...entry, id } : null);
+    }, () => setQueuedSend(current => current === entry ? null : current));
+  };
+  const sendMessage = (messageText: string) => lazy && !chatInstanceId ? sendWithoutConversation(messageText) : onSend(messageText);
+
+  useEffect(() => {
+    if (!queuedSend) return;
+    // Identity, assistant or storage scope changed: the message belonged to
+    // another context and must not be sent into the new one.
+    if (queuedSend.scope !== storageKey) { setQueuedSend(null); return; }
+    if (!queuedSend.id || !chatInstanceId || isChangingInstance) return;
+    setQueuedSend(null);
+    if (queuedSend.id !== chatInstanceId) return;
+    void onSend(queuedSend.text);
+  }, [queuedSend, chatInstanceId, isChangingInstance, storageKey]);
+
   const updateChatTitle = useCallback(
     (newTitle: string, specificChatInstanceId?: string) => {
       const targetInstanceId = specificChatInstanceId || chatInstanceId;
@@ -847,7 +878,12 @@ export const useChatMessages = ({
     try {
       const effectiveUser = overrideUser || user;
       const newInstanceId = await getNewInstance(overrideUser);
-      if (!newInstanceId) return null;
+      if (!newInstanceId) {
+        // Lazy mode: the next conversation only exists after the first send.
+        // Its title must not inherit the previous conversation's.
+        if (lazy) setChatTitle("");
+        return null;
+      }
 
       dispatch({
         type: ChatActionTypes.SET_MESSAGES,
@@ -909,6 +945,7 @@ export const useChatMessages = ({
     getNewInstance,
     setChatTitle,
     clearCachedMessages,
+    lazy,
     user.id,
     user.email,
     user.name,
@@ -1004,7 +1041,7 @@ export const useChatMessages = ({
   return {
     messages: chatInstanceId ? state.messages.filter(message => message.chatInstanceId === chatInstanceId) : [],
     notificationCount: state.notificationCount,
-    suggestions: chatInstanceId ? state.suggestions : [],
+    suggestions: chatInstanceId ? state.suggestions : lazy ? welcome.suggestions : [],
     canvases: chatInstanceId ? canvasHistory.canvases : [],
     error: {
       message: error,
@@ -1032,7 +1069,7 @@ export const useChatMessages = ({
     socketStatus,
     subscribeToConversationEvent,
     typingUsers,
-    conversationStarters,
+    conversationStarters: lazy && !chatInstanceId ? welcome.starters : conversationStarters,
     activeTool,
     fetchMessagesFromApi,
     chatTitle,
@@ -1063,12 +1100,15 @@ export const useChatMessages = ({
     },
     canvas: canvasHistory.canvas,
     canvasHistory,
-    isLoading: state.isLoading || isChangingInstance || (!chatInstanceId && !instanceError),
+    isLoading: lazy
+      ? state.isLoading || isChangingInstance || Boolean(queuedSend)
+      : state.isLoading || isChangingInstance || (!chatInstanceId && !instanceError),
     instanceError,
     retryChatSession,
     beginAnonymousSession,
     isChangingInstance,
-    onSend,
+    onSend: sendMessage,
+    ensureChatInstance: ensureInstance,
     selectConversation,
     updateChatTitle,
     chatInstanceId,
