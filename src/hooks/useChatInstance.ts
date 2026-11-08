@@ -7,7 +7,7 @@ type Identity = { token?: string; id?: string; email?: string; name?: string };
 interface UseChatInstanceProps {
   chatModelId: string;
   lang: string;
-  config?: { apiUrl?: string; apiToken?: string; storageNamespace?: string; getClientSignalsHeader?: () => string | null | undefined };
+  config?: { apiUrl?: string; apiToken?: string; storageNamespace?: string; getClientSignalsHeader?: () => string | null | undefined; lazyConversation?: boolean };
   user?: Identity;
   isAdmin?: boolean;
 }
@@ -45,6 +45,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const apiUrl = (config?.apiUrl || defaultApiUrl).replace(/\/$/, '');
   const apiToken = config?.apiToken || '';
   const storageNamespace = config?.storageNamespace || '';
+  const lazy = Boolean(config?.lazyConversation);
   const language = useRef(lang);
   language.current = lang;
   const signalsGetter = useRef(config?.getClientSignalsHeader);
@@ -54,11 +55,16 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   const legacyKey = `chatInstanceId[${chatModelId}${isAdmin ? '-smartadmin' : '-standard'}]`;
   const [active, setActive] = useState({ scope: '', id: '' });
   const [error, setError] = useState<Error | null>(null);
-  const [changing, setChanging] = useState(false);
+  // Lazy mode starts "changing" so nothing treats the pre-admission render as
+  // "no conversation"; the mount resolve settles it either way.
+  const [changing, setChanging] = useState(lazy);
   const context = useRef({ scope: storageKey, epoch: 0 });
   if (context.current.scope !== storageKey) context.current = { scope: storageKey, epoch: context.current.epoch + 1 };
   const pending = useRef<{ key: string; controller: AbortController; promise: Promise<string | null> } | null>(null);
   const mounted = useRef(true);
+  const activeId = active.scope === storageKey ? active.id : '';
+  const latest = useRef<{ activeId: string; resolve?: () => Promise<string | null> }>({ activeId });
+  latest.current.activeId = activeId;
   const read = readConversationStorage;
   const readSelection = (): Selection | null => {
     try { const value = JSON.parse(read(selectionKey) || 'null');
@@ -67,11 +73,13 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
   };
   const store = writeConversationStorage;
 
-  const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true): Promise<string | null> => {
+  // `createIfMissing = false` only resumes a saved conversation: with nothing
+  // to resume it settles to null without any network request.
+  const resolve = useCallback((overrideUser?: Identity, requestedId?: string, fresh = false, publish = true, createIfMissing = true): Promise<string | null> => {
     const identity = overrideUser || user;
     const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity, isAdmin, storageNamespace);
     const epoch = context.current.epoch;
-    const key = JSON.stringify([scope, identity?.token, requestedId || '', fresh, publish]);
+    const key = JSON.stringify([scope, identity?.token, requestedId || '', fresh, publish, createIfMissing]);
     if (pending.current?.key === key && !pending.current.controller.signal.aborted) return pending.current.promise;
     pending.current?.controller.abort();
     const controller = new AbortController();
@@ -107,6 +115,7 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
           const saved = fresh ? null : requestedId || (selection?.fresh ? null : scoped || legacy);
           const legacyVisitor = Boolean(saved && !scoped && saved === legacy && !identity?.token && !Object.keys(conversationVisitorHeaders(saved)).length);
           let resuming = Boolean(saved);
+          if (!saved && !createIfMissing) return null;
           let response = isAdmin && saved
             ? await fetch(`${apiUrl}/api/chat/history/${saved}`, { headers, signal: controller.signal })
             : await post(saved || undefined);
@@ -115,6 +124,13 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
             // Pre-capability visitor IDs cannot be recovered securely. Migrate
             // only the legacy guest selection; account/auth/bans stay locked.
             if (legacyVisitor && response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED') {
+              if (!createIfMissing) {
+                // Lazy mode: forget the unrecoverable legacy selection rather
+                // than replacing it with a conversation nobody asked for yet.
+                if (previousScope) removeConversationStorage(previousScope);
+                removeConversationStorage(legacyKey);
+                return null;
+              }
               response = await post();
               resuming = false;
             } else throw Object.assign(new Error(`Failed to resume chat instance: HTTP ${response.status}`), { status: response.status, code: failure.code, reason: failure.reason, conversationId: saved });
@@ -172,16 +188,28 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     const scope = chatInstanceStorageKey(apiUrl, chatModelId, identity || user, isAdmin, storageNamespace);
     // Coalesce repeated clicks before rotating the capability. Otherwise the
     // second click invalidates the first response while sharing its promise.
-    const pendingKey = JSON.stringify([scope, (identity || user)?.token, '', true, true]);
+    const pendingKey = JSON.stringify([scope, (identity || user)?.token, '', true, true, true]);
     if (pending.current?.key === pendingKey && !pending.current.controller.signal.aborted) return pending.current.promise;
     store(`${scope}:creation`, newConversationCreationKey());
     store(selectionKey, JSON.stringify({ id: "", identity: chatIdentity(identity || user), fresh: true }));
+    if (lazy) {
+      // The fresh selection and rotated creation key are the whole "new chat":
+      // the conversation itself is created by ensureInstance on first send.
+      pending.current?.controller.abort();
+      context.current.epoch++;
+      latest.current.activeId = '';
+      setActive({ scope: storageKey, id: '' });
+      setChanging(false);
+      setError(null);
+      return Promise.resolve(null);
+    }
     return resolve(identity, undefined, true);
-  }, [resolve, apiUrl, chatModelId, user, isAdmin, storageNamespace, selectionKey]);
+  }, [resolve, apiUrl, chatModelId, user, isAdmin, storageNamespace, selectionKey, lazy, storageKey]);
   const selectInstance = useCallback((id: string) => resolve(undefined, id), [resolve]);
   const beginAnonymousSession = useCallback(() => {
     pending.current?.controller.abort();
     context.current.epoch++;
+    latest.current.activeId = '';
     setActive({ scope: '', id: '' });
     setChanging(false);
     try {
@@ -206,9 +234,27 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
 
   useEffect(() => {
     mounted.current = true;
-    void resolve();
+    void resolve(undefined, undefined, false, true, !lazy);
     return () => { mounted.current = false; pending.current?.controller.abort(); };
-  }, [storageKey, user?.token, apiToken, resolve]);
+  }, [storageKey, user?.token, apiToken, resolve, lazy]);
+
+  latest.current.resolve = resolve;
+  const lazyRetry = useCallback(() => resolve(undefined, undefined, false, true, false), [resolve]);
+  /** Returns the active conversation, creating it if there is none. Concurrent
+   * callers share one admission: an in-flight resolve is awaited first, and
+   * creation requests coalesce on their pending key inside `resolve`. */
+  const ensureInstance = useCallback(async (): Promise<string | null> => {
+    if (latest.current.activeId) return latest.current.activeId;
+    const inflight = pending.current;
+    if (inflight && !inflight.controller.signal.aborted) {
+      const id = await inflight.promise;
+      if (id) return id;
+      if (latest.current.activeId) return latest.current.activeId;
+    }
+    // A saved selection is still resumed, never replaced: resolve only creates
+    // when nothing is saved for the current identity.
+    return latest.current.resolve!();
+  }, []);
 
   useEffect(() => {
     const denied = (event: Event) => {
@@ -235,8 +281,11 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
     return () => window.removeEventListener('storage', listener);
   }, [selectionKey, active.id, resolve]);
 
-  return { chatInstanceId: active.scope === storageKey ? active.id : '', getNewInstance, selectInstance,
-    setChatInstanceId: selectInstance, error, isChanging: changing, retry: resolve,
+  return { chatInstanceId: activeId, getNewInstance, selectInstance, ensureInstance,
+    setChatInstanceId: selectInstance, error, isChanging: changing,
+    // Lazy mode: retrying only re-admits a saved conversation; creation stays
+    // tied to a first message (ensureInstance).
+    retry: lazy ? lazyRetry : resolve,
     storageKey, selectionKey, beginAnonymousSession, cleanup };
 };
 export default useChatInstance;

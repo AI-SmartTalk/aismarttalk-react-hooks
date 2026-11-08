@@ -652,3 +652,39 @@ grant from the core. Requires the core conversation-session API and the matching
 WS admission service. The widget vendors 1.6.4 locally; publishing to npm is a
 separate release action. Browser checks are in `scripts/verify-cross-tab-resume.cjs`
 and `scripts/verify-conversation-lifecycle.cjs` (Puppeteer must be available).
+
+### Lazy conversation creation (1.7.0)
+
+By default a conversation is created as soon as the chat mounts. Set
+`lazyConversation: true` in `ChatConfig` to create it only when the visitor
+sends a first message:
+
+```tsx
+const { chatInstanceId, onSend, conversationStarters, suggestions, ensureChatInstance } =
+  useAISmarttalkChat({ chatModelId, lang: 'en', config: { apiUrl, apiToken, lazyConversation: true } });
+```
+
+- A saved conversation (current selection, scoped storage or legacy key) is still
+  resumed on mount exactly as before. Without one, no request is made and
+  `chatInstanceId` stays `''` (`isLoading` is `false` while idle).
+- `onSend` called without a conversation creates it, then sends the message into
+  that exact conversation once it is active. Additional sends while it is being
+  created are ignored; the message is dropped if creation fails or the identity
+  changes meanwhile (`sessionError` reports the failure).
+- `ensureChatInstance(): Promise<string | null>` returns the active conversation
+  ID, creating one if needed. Concurrent calls share a single creation, which
+  reuses the stored creation key, so a retried request never creates twice.
+- `createNewChat()` makes no request in lazy mode: it rotates the creation key,
+  clears the active conversation and resolves to `null`; the next send creates it.
+- While there is no conversation, `conversationStarters` and `suggestions` come
+  from the public welcome endpoint (refetched when `lang` or `chatModelId`
+  changes, failures yield empty lists):
+
+```
+GET {apiUrl}/api/public/chatModel/{encodeURIComponent(chatModelId)}/welcome?lang={lang}
+→ 200 { "starters": CTADTO[], "suggestions": string[] }
+```
+
+Starters without a string `title` and `message`, and non-string suggestions, are
+ignored. Once a conversation exists, starters and suggestions come from the
+conversation socket as before. `useChatInstance` also returns `ensureInstance`.

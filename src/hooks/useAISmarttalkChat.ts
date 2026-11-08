@@ -69,6 +69,7 @@ const createLogger = (enabled: boolean, prefix: string) => {
  * @returns {Object} Chat management functions and state
  * @returns {string} returns.chatInstanceId - Current chat instance identifier
  * @returns {Function} returns.getNewInstance - Creates a new chat instance
+ * @returns {Function} returns.ensureChatInstance - Resolves the active conversation ID, creating it if needed (lazy mode)
  * @returns {Function} returns.setChatInstanceId - Sets the chat instance ID
  * @returns {Function} returns.resetInstance - Resets the current chat instance
  * @returns {Object} returns.user - Current user information
@@ -161,7 +162,7 @@ export const useAISmarttalkChat = ({
         debug: debug,
       };
     },
-    [chatModelId, user.id, user.email, user.token, lang, features.smartadmin, debug, config?.apiUrl, config?.wsUrl, config?.apiToken]
+    [chatModelId, user.id, user.email, user.token, lang, features.smartadmin, debug, config?.apiUrl, config?.wsUrl, config?.apiToken, config?.lazyConversation]
   );
 
   const {
@@ -192,6 +193,7 @@ export const useAISmarttalkChat = ({
     promoteToKnowledge,
     isUploading,
     addMessage,
+    ensureChatInstance,
   } = useChatMessages(chatMessagesProps);
 
   useEffect(() => {
@@ -327,6 +329,7 @@ export const useAISmarttalkChat = ({
 
   return {
     chatInstanceId,
+    ensureChatInstance,
     createNewChat,
     sessionError: instanceError,
     retryChatSession,

@@ -17,6 +17,14 @@ export interface ChatConfig {
   storageNamespace?: string;
   /** Optional browser signals used by creation protection. */
   getClientSignalsHeader?: () => string | null | undefined;
+  /**
+   * Defer conversation creation until the visitor sends a first message.
+   * A saved conversation is still resumed on mount; without one, no
+   * conversation is created, `chatInstanceId` stays empty and the welcome
+   * starters/suggestions are fetched from the public welcome endpoint.
+   * Defaults to false (a conversation is created as soon as the chat mounts).
+   */
+  lazyConversation?: boolean;
   features?: ChatFeatures;
   user?: User;
   debug?: boolean;
