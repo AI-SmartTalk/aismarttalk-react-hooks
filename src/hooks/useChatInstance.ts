@@ -123,7 +123,19 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
             const failure = await response.json().catch(() => ({}));
             // Pre-capability visitor IDs cannot be recovered securely. Migrate
             // only the legacy guest selection; account/auth/bans stay locked.
-            if (legacyVisitor && response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED') {
+            if (response.status === 404 && failure.code === 'CONVERSATION_NOT_FOUND') {
+              // The server purges conversations that stayed empty. Forget this
+              // one entirely, then start over like a first visit: nothing in
+              // lazy mode, a fresh conversation (new creation key) otherwise.
+              removeConversationStorage(scope);
+              removeConversationStorage(selectionKey);
+              if (previousScope) removeConversationStorage(previousScope);
+              removeConversationStorage(legacyKey);
+              store(`${scope}:creation`, newConversationCreationKey());
+              if (!createIfMissing) return null;
+              response = await post();
+              resuming = false;
+            } else if (legacyVisitor && response.status === 403 && failure.code === 'CONVERSATION_ACCESS_DENIED') {
               if (!createIfMissing) {
                 // Lazy mode: forget the unrecoverable legacy selection rather
                 // than replacing it with a conversation nobody asked for yet.
