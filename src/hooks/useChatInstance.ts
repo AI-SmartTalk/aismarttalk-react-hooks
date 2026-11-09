@@ -100,7 +100,9 @@ export const useChatInstance = ({ chatModelId, lang, config, user, isAdmin = fal
       method: 'POST', headers: { ...headers, ...conversationVisitorHeaders(id || ''), ...(signals ? { 'x-client-signals': signals } : {}) }, signal: controller.signal,
       body: JSON.stringify({ chatModelId, lang: language.current, userEmail: identity?.email || 'anonymous@example.com', userName: identity?.name || 'Anonymous',
         ...(!id && creationKey ? { creationKey } : {}),
-        ...(id ? { resumeOnly: true, chatInstanceId: id, ...(publish && identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
+        // acceptsNotFound: this client starts over on 404 CONVERSATION_NOT_FOUND
+        // (purged conversation); without it the Core keeps answering 403.
+        ...(id ? { resumeOnly: true, chatInstanceId: id, acceptsNotFound: true, ...(publish && identity?.token && Object.keys(conversationVisitorHeaders(id)).length ? { claimAnonymous: true } : {}) } : {}) }),
     });
     };
     const timeout = setTimeout(() => controller.abort(), 10_000);

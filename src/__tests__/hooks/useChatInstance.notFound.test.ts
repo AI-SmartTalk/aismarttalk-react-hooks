@@ -44,7 +44,8 @@ it('eager: a purged conversation is replaced by a new one, without error', async
   const { result } = renderHook(() => useChatInstance(eagerBase));
   await waitFor(() => expect(result.current.chatInstanceId).toBe('fresh'));
   expect(result.current.error).toBeNull();
-  expect(bodies()[0]).toMatchObject({ resumeOnly: true, chatInstanceId: 'purged' });
+  // The Core only answers 404 to a client that says it handles it.
+  expect(bodies()[0]).toMatchObject({ resumeOnly: true, chatInstanceId: 'purged', acceptsNotFound: true });
   expect(bodies()[1].chatInstanceId).toBeUndefined();
   expect(localStorage.getItem(key())).toBe('fresh');
 });
